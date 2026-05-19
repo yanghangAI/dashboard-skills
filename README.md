@@ -8,8 +8,9 @@ A small bundle for turning a project's accumulated `.md` walls into a navigable 
 skills/
   build-html-dashboard/   methodology skill — six-phase process for designing the dashboard
   html-effectiveness/     required dep — 9 spatial patterns each page picks from
+  fix-feedback/           runtime skill — processes the comment+claude-fix issue queue
 templates/
-  fix-feedback.md         slash-command template for processing comment-issues
+  fix-feedback.md         per-project slash-command form (fallback when URL→file mapping needs to be spelled out by hand)
 ```
 
 ### `skills/build-html-dashboard`
@@ -27,11 +28,15 @@ Methodology (not a template). Phases:
 
 Catalog of nine spatial patterns (Comparison Board, Annotated Timeline, Knowledge Explorer, Interactive Report, Decision Matrix, Kanban, Slide Deck, Design Tokens, Code Review Board). Each dashboard page picks exactly one. `build-html-dashboard` declares this as a **REQUIRED** background skill.
 
-### `templates/fix-feedback.md`
+### `skills/fix-feedback`
 
-Slash-command spec that reads `state=open` issues with both `comment` AND `claude-fix` labels, parses the dashboard's issue-body template (`Where:` / `Quote:` / `Note:`), maps each page URL to its source file, applies the minimum edit, commits, mirrors to `gh-pages` if any HTML/assets changed, and closes the issue.
+Runtime half of Phase 6 of `build-html-dashboard`. Reads `state=open` issues with both `comment` AND `claude-fix` labels, parses the dashboard's issue-body template (`Where:` / `Quote:` / `Note:`), maps each page URL to its source file, applies the minimum edit, commits, mirrors to `gh-pages` if any HTML/assets changed, and closes the issue.
 
-The template ships with `<OWNER>/<REPO>` and `<PAGES_BASE_URL>` placeholders. Copy it to `.claude/commands/fix-feedback.md` in your project and substitute.
+Auto-derives `<OWNER>/<REPO>` from `git remote get-url origin`. Defaults the GitHub Pages base URL to `https://<OWNER>.github.io/<REPO>/`. Asks the user only when detection fails (non-GitHub remote, custom domain, non-default Pages branch). No per-project config to maintain.
+
+### `templates/fix-feedback.md` (fallback)
+
+The earlier per-project slash-command form, with `<OWNER>/<REPO>` and `<PAGES_BASE_URL>` placeholders to substitute. Use this when the project's URL→file mapping isn't a clean strip-prefix — multi-site repos, custom domains, HTML rendered from `.md` in non-obvious locations. Copy to `.claude/commands/fix-feedback.md` and edit by hand.
 
 ## Install
 
@@ -43,11 +48,14 @@ Drop the skill directories into your skills path:
 git clone https://github.com/yanghangAI/dashboard-skills
 cp -r dashboard-skills/skills/build-html-dashboard ~/.claude/skills/
 cp -r dashboard-skills/skills/html-effectiveness   ~/.claude/skills/
+cp -r dashboard-skills/skills/fix-feedback         ~/.claude/skills/
 ```
 
 Skills are auto-discovered by Claude Code at session start.
 
-### `/fix-feedback` slash command
+### Fallback: per-project slash command
+
+Only needed if the `fix-feedback` skill's auto-detection doesn't fit your project (see its "When to prefer the template" section).
 
 ```bash
 mkdir -p <your-project>/.claude/commands

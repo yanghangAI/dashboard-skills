@@ -120,7 +120,7 @@ Most projects: GitHub Pages from a `gh-pages` branch. On each main-branch push, 
 
 ### Phase 6 — Maintenance loop
 
-Add `.claude/commands/fix-feedback.md`. Filter is the **intersection** `--label comment --label claude-fix` (legacy issues with only `claude-fix` are pre-toggle artifacts — exclude). The `claude-fix` label is set at issue-creation time by the modal checkbox (Phase 4, pattern 10) — *never* require collaborators to add it manually on github.com after the fact. On `/fix-feedback`: list, parse each body for URL anchor + quote + note, map URL → source file, apply minimal edit, mirror, close with `Fixed in <hash>: <summary>`.
+Install the `fix-feedback` skill (preferred — auto-derives `<OWNER>/<REPO>` from `git remote`, no per-project config), or drop the `fix-feedback.md` template into `.claude/commands/` when the project's URL→file mapping isn't a clean strip-prefix (multi-site repo, custom domain, HTML rendered from `.md` in a non-obvious location). Filter is the **intersection** `--label comment --label claude-fix` (legacy issues with only `claude-fix` are pre-toggle artifacts — exclude). The `claude-fix` label is set at issue-creation time by the modal checkbox (Phase 4, pattern 10) — *never* require collaborators to add it manually on github.com after the fact. Behavior: list, parse each body for URL anchor + quote + note, map URL → source file, apply minimal edit, mirror, close with `Fixed in <hash>: <summary>`.
 
 ## Common failure modes
 
@@ -154,4 +154,5 @@ A working implementation lives at `yanghangAI/imagehide` (`index.html`, `docs/ht
 ## See also
 
 - `html-effectiveness` (required) — the 9 spatial patterns
+- `fix-feedback` — the runtime half of Phase 6; processes the `comment AND claude-fix` issue queue
 - W3C Web Annotation Data Model: https://www.w3.org/TR/annotation-model/#text-quote-selector
