@@ -21,7 +21,7 @@ A methodology for replacing a project's `.md` documentation walls with a small s
 **Don't use when:**
 - The audience is the public / paper reviewers → use `frontend-design` for marketing pages
 - The project has 1–2 docs → just edit the markdown
-- You want anonymous commenting → use giscus or a Worker-backed system
+- You want anonymous commenting → use giscus; both auth modes here tie every comment to a GitHub user
 
 ## REQUIRED background skills
 
@@ -54,7 +54,42 @@ upfront about which page sections come from `.md` (intent / decisions /
 rejected alternatives) vs from live sources (running jobs / latest eval
 numbers / current deployed checkpoint).
 
-**1b. Then answer:**
+**1b. Then ASK the user — comment-auth mode.** Use `AskUserQuestion`
+with two options. This decision affects Phase 4 (comment overlay)
+and Phase 5 (deploy targets); ask it before designing pages.
+
+- **PAT (per-viewer Personal Access Token)**: each viewer creates a
+  fine-grained PAT (*Issues r/w on this repo only*), pastes it into
+  the dashboard's Sign-in modal once; stored in their browser's
+  `localStorage`. No backend. Static site only. Simpler to ship,
+  but ~2 min of one-time setup per collaborator, and pasting a
+  token is a real adoption blocker for non-technical viewers.
+- **OAuth (worker-mediated sign-in)**: one-click "Sign in with
+  GitHub". A Cloudflare Worker holds the OAuth App's client secret,
+  exchanges authorization codes for GitHub user access tokens, and
+  proxies the GitHub Issues calls. Viewers never see or paste a
+  token. Better UX and smaller blast radius if a client-side token
+  leaks — but requires a Worker deployment, a registered GitHub
+  OAuth App, and two server-side secrets (`GH_CLIENT_SECRET`,
+  `SESSION_SECRET`).
+
+| Aspect | PAT | OAuth + Worker |
+|---|---|---|
+| Per-viewer setup | ~2 min: paste PAT once | one click |
+| Infra | static site only | static site + Worker + OAuth App |
+| Server-side secrets | none | `GH_CLIENT_SECRET`, `SESSION_SECRET` |
+| Client-side storage | raw PAT in `localStorage` | HMAC-signed session in `localStorage` |
+| If client token leaks | full Issues r/w on the repo | only the Worker's exposed routes |
+| Good fit | solo / tiny technical teams | non-technical collaborators, polished UX |
+
+Defaults: PAT for solo or small all-technical teams; OAuth when
+pasting a token would be a real adoption blocker, or when the
+project already has a Cloudflare account and a custom domain.
+Either way, **Phase 4's ten load-bearing patterns apply unchanged**
+— the auth choice is orthogonal to how the comment overlay handles
+selections, anchors, and state.
+
+**1c. Then answer:**
 
 1. **Who reads this?** (Insiders / paper readers / external collaborators / future-you on a fresh checkout)
 2. **What questions do they arrive with?** Common: *Where is the project right now? What does this thing do? Why these design choices? What's the plan? How do I run it?* — but the actual set is project-specific.
@@ -62,7 +97,7 @@ numbers / current deployed checkpoint).
 4. **What's stale?** Anything not touched in months is suspect — verify against `git log`, running jobs, actual deployed checkpoints (read `train_args.txt`, config files; don't trust .md defaults).
 5. **What's the audience tone?** Insiders want information density; outsiders want context. Pick one and commit.
 
-Output: a chosen source-mode + a list of 4–7 reader questions + a freshness map of the source material.
+Output: a chosen source-mode + a chosen auth-mode + a list of 4–7 reader questions + a freshness map of the source material.
 
 ### Phase 2 — Page design (from first principles)
 
@@ -97,12 +132,25 @@ gh label create comment    -R owner/repo --color 5319e7
 gh label create claude-fix -R owner/repo --color 0e8a16
 ```
 
-Per-viewer setup (one-time, ~2 min per collaborator): fine-grained PAT, *Issues r/w on this repo only*, paste into the Sign-in modal — stored in their browser's localStorage.
+Per-viewer setup depends on the auth-mode chosen in Phase 1b:
+
+- **PAT mode** (~2 min per collaborator, one-time): fine-grained PAT
+  with *Issues r/w on this repo only*, paste into the Sign-in modal —
+  stored in their browser's `localStorage`.
+- **OAuth mode** (one click per collaborator): viewer clicks "Sign in
+  with GitHub", authorizes the OAuth App once. The Worker exchanges
+  the code for a GH access token, mints an HMAC-signed session
+  (`<b64url(payload)>.<b64url(HMAC-SHA256(payload, SESSION_SECRET))>`),
+  returns it to the dashboard — also stored in `localStorage`. The
+  owner does the one-time setup: register an OAuth App with callback
+  pointing at the dashboard's `oauth-return.html`, deploy the Worker,
+  `wrangler secret put GH_CLIENT_SECRET` + `wrangler secret put
+  SESSION_SECRET`. Pin CORS on the Worker to the dashboard origin.
 
 The load-bearing patterns the overlay must implement (each cures a specific failure mode):
 
 1. **Static `<button>` in HTML for Sign-in / View** — survives cache misses; do not JS-inject.
-2. **Per-viewer PAT, no shared backend** — GitHub identity = comment author; works for private repos.
+2. **GitHub identity = comment author; no per-user server state** — comment author is always the signed-in GitHub user (PAT mode: raw PAT in the browser; OAuth mode: stateless HMAC-signed session minted by a Worker that stores nothing per-user). Works for private repos either way. Avoid anonymous comments or shared-bot identities — they kill accountability.
 3. **TextQuoteSelector context anchor** (W3C Web Annotations): capture ~32 chars before + after the selection; embed in the issue body as `<!-- fb-ctx: pre="..." suf="..." -->`. Disambiguates duplicate text.
 4. **Multi-text-node walker** — selections cross `<code>`, `<b>`, line breaks. Build a flat concatenated text + position map by walking text nodes; wrap each text node touched.
 5. **Whitespace-normalized + case-insensitive fallbacks** — handles selections across line breaks and `text-transform: uppercase` section headers.
@@ -118,6 +166,13 @@ These ten are non-obvious. Each was discovered the hard way; don't skip any.
 
 Most projects: GitHub Pages from a `gh-pages` branch. On each main-branch push, mirror the HTML + `assets/` into a `gh-pages` worktree, **rewrite repo-internal `.md` and source links** to `https://github.com/owner/repo/blob/main/...` URLs (the gh-pages branch only carries HTML, so `.md` links 404 otherwise), commit, push.
 
+**OAuth mode adds a second deploy target.** The Worker lives in
+`worker/feedback/` (or similar) and ships independently: `cd
+worker/feedback && npx wrangler deploy`. Also mirror `oauth-return.html`
+to the `gh-pages` root — its URL must match the OAuth App's
+**Authorization callback URL** exactly, or GitHub returns
+`redirect_uri_mismatch`. Update both in lockstep if you move domains.
+
 ### Phase 6 — Maintenance loop
 
 Install the `fix-feedback` skill (preferred — auto-derives `<OWNER>/<REPO>` from `git remote`, no per-project config), or drop the `fix-feedback.md` template into `.claude/commands/` when the project's URL→file mapping isn't a clean strip-prefix (multi-site repo, custom domain, HTML rendered from `.md` in a non-obvious location). Filter is the **intersection** `--label comment --label claude-fix` (legacy issues with only `claude-fix` are pre-toggle artifacts — exclude). The `claude-fix` label is set at issue-creation time by the modal checkbox (Phase 4, pattern 10) — *never* require collaborators to add it manually on github.com after the fact. Behavior: list, parse each body for URL anchor + quote + note, map URL → source file, apply minimal edit, mirror, close with `Fixed in <hash>: <summary>`.
@@ -128,6 +183,8 @@ Install the `fix-feedback` skill (preferred — auto-derives `<OWNER>/<REPO>` fr
 |---|---|---|
 | Dashboard built from stale .md, doesn't match deployed state | 1 | Source-mode was *docs-only* when the project moved on. Re-do as *combine* — verify live sources for load-bearing numbers. |
 | Agent invented a page structure the user didn't want | 1 | Source-mode never asked. Always run 1a before proposing pages. |
+| Collaborators won't paste a PAT → no comments come in | 1, 4 | Re-do 1b with OAuth mode; deploy a Worker + register an OAuth App. |
+| `redirect_uri_mismatch` from GitHub during sign-in | 1, 5 | OAuth mode: OAuth App's callback URL doesn't match `oauth-return.html`'s deployed location. Edit the App, save. |
 | Pages mirror .md 1:1; reader still confused | 2 | Reorganize by reader question, not source artifact |
 | Spec page wrong | 1, 3 | Verify against `train_args.txt` / live config — don't trust .md defaults |
 | Comment shows only after refresh | 4 | Optimistic update (pattern 7) |
@@ -144,7 +201,7 @@ Install the `fix-feedback` skill (preferred — auto-derives `<OWNER>/<REPO>` fr
 - ❌ Auto-generating HTML from .md. Curation matters.
 - ❌ Mirroring source-doc structure into pages. Group by reader question.
 - ❌ Hero blocks, gradients, decorative emoji for insider audiences. Info density.
-- ❌ Shipping a backend / Worker just for comments. PAT-in-localStorage is sufficient.
+- ❌ Shipping a *stateful* backend (DB, server-side session store, queues) just for comments. Either pattern — PAT-in-`localStorage` or a stateless Worker that only exchanges OAuth codes and HMAC-signs sessions — is sufficient for an insider audience.
 - ❌ Templating the page set. Every project gets a different page count and structure.
 
 ## Reference implementation
