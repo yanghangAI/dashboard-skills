@@ -296,7 +296,7 @@ gh label create override   -R owner/repo --color fbca04
 1. Static `<button>` in HTML for Sign-in / View (no JS injection).
 2. GitHub identity = comment author (PAT or HMAC session).
 3. TextQuoteSelector context anchor (`pre`/`suf` of ~32 chars in the issue body).
-4. Multi-text-node walker for selections crossing `<code>` / `<b>`.
+4. Multi-text-node walker for selections crossing `<code>` / `<b>` / table rows / event blocks. **Implementation pitfall:** when capturing the selection, derive `start` / `end` positions by mapping `range.startContainer` + `range.startOffset` (and the end pair) against the walk's *position map*. Do **not** use `sel.toString()` to compute the quote — for cross-element selections, browsers return a normalized form (`\n` between elements, no structural whitespace) that won't match `walk.text` later. `walk.text.indexOf(sel.toString())` returns −1 → `pre`/`suf` end up empty → the comment is silently unanchorable forever. The correct quote is `walk.text.slice(start, end)`, so it's guaranteed to round-trip when `locateQuote` runs against the same walk text on re-render.
 5. Whitespace-normalized + case-insensitive fallbacks. **Implementation pitfall:** the naive form (`text.replace(/\s+/g, " ").indexOf(quote)`) returns offsets in the *normalized* text — but `wrapRange` walks nodes by *original*-text offsets, so using the normalized index silently mis-wraps. Use a whitespace-flexible regex against the original text instead: `new RegExp(escapeRegex(quote).replace(/\s+/g, "\\s+"))`. `m.index` then stays in original-text coordinates.
 6. Uppercase-container heuristic for all-caps headers.
 7. Optimistic local update on publish.
@@ -406,6 +406,7 @@ The 10 comment-overlay patterns are preserved. The auth modes (PAT / OAuth+Worke
 | `redirect_uri_mismatch` on sign-in | 1a, 6 | OAuth App callback URL doesn't match deployed `oauth-return.html`. |
 | Section header doesn't highlight | 5 | Pattern 6 (uppercase-container heuristic) missing. |
 | Selection across `<code>` fails | 5 | Pattern 4 (multi-text-node walker) missing. |
+| **Selection crosses table rows / event blocks; filed comment is silently unanchorable** | 5 | Pattern 4 implemented naively with `sel.toString()` instead of range-positions-against-walk. Symptoms: filed issue body has `pre=""` / `suf=""` and a quote with `\n` in it. Fix: at selection time, map `range.startContainer`+`startOffset` to a walk position, same for end; use `walk.text.slice(start, end)` as the quote. |
 | **Filed a comment, the highlight never appears on the page** | 5 | Pattern 11 missing — `loadComments` ran before the page's async IIFE finished. Dispatch `dashboard:rendered` after each page renders; overlay listens and re-walks. |
 | **Highlight lands a few chars off from the actual quote** | 5 | Pattern 5 implemented naively — normalized fallback returned wrong-coordinate-space indexes. Use whitespace-flexible regex against the original text (see pattern 5's implementation pitfall). |
 | **FYI comments are wrapped but invisible on the rendered page** | 5 | Just a CSS bug — grey-on-grey on `.active` nav links or `--surface-alt` cards. Use indigo for FYI to distinguish from neutral greys. *Not a missing pattern, just a contrast oversight.* |
@@ -421,8 +422,9 @@ The original 10 patterns came from imagehide's real use; the two v2 additions (1
 2. File at least one comment of each severity tier from a real browser session.
 3. Verify each highlight is subtle (low-alpha + dashed underline), and clicking opens an in-page popover with the note — not a tab redirect.
 4. Press Escape / click outside — popover closes.
-5. File a comment whose quote spans two sections — verify the bottom-right *"N floating"* toggle appears and expands to a list of unanchored issues; clicking any item opens the same popover.
-6. Refresh and navigate between pages — verify `dashboard:rendered` re-walks correctly (no double-wraps; old anchors get unwrapped first).
+5. **File a comment whose selection crosses element boundaries** (two table rows, two `<span>`s) — refresh and verify the highlight still renders on the page. The filed issue body's `Quote:` block should contain the structural whitespace from the walk; its `<!-- fb-ctx: pre="..." suf="..." -->` line should have non-empty `pre` *and* `suf`. If `pre` and `suf` come back empty and the comment doesn't re-render, pattern 4 was implemented with `sel.toString()` instead of range positions against the walk.
+6. File a comment whose quote genuinely can't be anchored (e.g. select text in the now-removed modal, or rely on text the page changes between filings) — verify the bottom-right *"N floating"* toggle appears.
+7. Refresh and navigate between pages — verify `dashboard:rendered` re-walks correctly (no double-wraps; old anchors get unwrapped first).
 
 If any step silently fails *and v1 didn't already solve it*, that's a missing pattern — add it back here. If v1 already solved it and the dogfood implementation just got it wrong, fix the implementation, not the methodology. The retrospective above notes one over-correction this skill made and reversed.
 

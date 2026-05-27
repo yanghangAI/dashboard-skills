@@ -125,26 +125,61 @@ function findBinding(node) {
 }
 
 /* ---------- selection → bubble (pattern 1: static button via HTML) ---------- */
+/* Map a (textNode, offset) pair to a position in the walker's concatenated
+ * text. Returns -1 if the node isn't in the walk. This is the v1 pattern-4
+ * "position map" — using it (not sel.toString()) means selections that
+ * cross structural elements anchor correctly. */
+function rangeToWalkPos(node, offset, walk) {
+  for (const entry of walk.nodes) {
+    if (entry.node === node) return entry.start + offset;
+  }
+  // Non-text endpoint (element + child-index range boundary). Find the first
+  // walk node whose start position is at-or-after the element's text start.
+  if (node.nodeType === 1) {
+    // Compute the walk-position of the element's first descendant text.
+    for (const entry of walk.nodes) {
+      if (node.contains(entry.node)) return entry.start;
+    }
+  }
+  return -1;
+}
+
 function onSelection() {
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed) return hideBubble();
   const range = sel.getRangeAt(0);
-  const text = sel.toString();
-  if (text.trim().length < 3) return hideBubble();
+  if (sel.toString().trim().length < 3) return hideBubble();
   const rect = range.getBoundingClientRect();
   const bubble = document.getElementById("fb-bubble");
   bubble.style.top = `${window.scrollY + rect.bottom + 6}px`;
   bubble.style.left = `${window.scrollX + rect.left}px`;
   bubble.style.display = "block";
+
   const binding = findBinding(range.startContainer);
   const walk = walkText(document.body);
-  const idx = walk.text.indexOf(text);
-  let pre = "", suf = "";
-  if (idx !== -1) {
-    pre = walk.text.slice(Math.max(0, idx - CTX_LEN), idx);
-    suf = walk.text.slice(idx + text.length, idx + text.length + CTX_LEN);
+
+  // Pattern 4: derive start/end from the DOM Range against the walk's
+  // position map. NOT sel.toString() — that returns a normalized form
+  // (\n between elements, no structural whitespace) that won't match the
+  // walk's concatenated text for cross-element selections, leaving the
+  // comment silently unanchorable.
+  const start = rangeToWalkPos(range.startContainer, range.startOffset, walk);
+  const end   = rangeToWalkPos(range.endContainer,   range.endOffset,   walk);
+
+  let quote, pre, suf;
+  if (start !== -1 && end !== -1 && start < end) {
+    quote = walk.text.slice(start, end);
+    pre = walk.text.slice(Math.max(0, start - CTX_LEN), start);
+    suf = walk.text.slice(end, end + CTX_LEN);
+  } else {
+    // Fallback for selections the walk can't map (rare — e.g. inside an
+    // injected modal that walkText rejects). Use sel.toString() so the
+    // comment still ships, but it'll be unanchored on re-render.
+    quote = sel.toString();
+    pre = "";
+    suf = "";
   }
-  lastSelection = { quote: text, pre, suf, binding };
+  lastSelection = { quote, pre, suf, binding };
 }
 
 function hideBubble() {
