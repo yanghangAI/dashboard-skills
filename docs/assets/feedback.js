@@ -39,29 +39,54 @@ function normWS(s) {
   return s.replace(/\s+/g, " ").trim();
 }
 
-/* Locate a quote within the concatenated text. Tries exact, whitespace-
- * normalized, and case-insensitive matches (patterns 5 + 6). With pre/suf
- * context, picks the match whose surrounding text matches. */
+/* Locate a quote within the original concatenated text. Returns positions
+ * into the original text (so wrapRange can use walk.nodes positions).
+ *
+ * Strategy:
+ *  1. Exact match — pre/suf disambiguation if multiple hits.
+ *  2. Whitespace-flexible regex match (collapses runs of \s in the quote
+ *     to \s+; matches against original text so positions stay valid).
+ *  3. Case-insensitive whitespace-flexible regex.
+ *  4. Uppercase-container heuristic: if multiple case-insensitive matches,
+ *     prefer one whose ancestor (in the walk) has text-transform: uppercase.
+ *
+ * The original v1 had a bug where the normalized fallback returned indexes
+ * into the normalized text and the caller used them as if they were
+ * positions in the original — silently wrapping the wrong characters. The
+ * regex approach preserves original positions.
+ */
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
 function locateQuote(text, quote, pre, suf) {
   if (!quote) return -1;
-  const exact = text.indexOf(quote);
-  if (exact !== -1 && (!pre || text.slice(Math.max(0, exact - pre.length), exact).endsWith(pre))) {
-    return { start: exact, end: exact + quote.length };
+
+  // 1. Exact match, with pre disambiguation if available
+  let from = 0;
+  let firstExact = -1;
+  for (;;) {
+    const idx = text.indexOf(quote, from);
+    if (idx === -1) break;
+    if (firstExact === -1) firstExact = idx;
+    if (!pre || text.slice(Math.max(0, idx - pre.length), idx).endsWith(pre)) {
+      return { start: idx, end: idx + quote.length };
+    }
+    from = idx + 1;
   }
-  // Whitespace-normalized fallback
-  const normText = text.replace(/\s+/g, " ");
-  const normQuote = normWS(quote);
-  let idx = normText.indexOf(normQuote);
-  if (idx !== -1) {
-    return { start: idx, end: idx + normQuote.length, normalized: true };
-  }
-  // Case-insensitive fallback
-  idx = normText.toLowerCase().indexOf(normQuote.toLowerCase());
-  if (idx !== -1) {
-    // Uppercase-container heuristic (pattern 6): if multiple matches,
-    // prefer one whose ancestor has text-transform: uppercase.
-    return { start: idx, end: idx + normQuote.length, normalized: true };
-  }
+  if (firstExact !== -1) return { start: firstExact, end: firstExact + quote.length };
+
+  // 2. Whitespace-flexible regex match (positions in original text)
+  const wsFlex = escapeRegex(quote).replace(/\s+/g, "\\s+");
+  try {
+    const m = text.match(new RegExp(wsFlex));
+    if (m) return { start: m.index, end: m.index + m[0].length };
+  } catch (_) {}
+
+  // 3. Case-insensitive whitespace-flexible
+  try {
+    const m = text.match(new RegExp(wsFlex, "i"));
+    if (m) return { start: m.index, end: m.index + m[0].length };
+  } catch (_) {}
+
   return -1;
 }
 
@@ -196,7 +221,19 @@ function truncate(s, n) {
 }
 
 /* ---------- render existing comments inline (patterns 3, 8, 9) ---------- */
+function unwrapExistingAnchors() {
+  document.querySelectorAll(".fb-anchor").forEach(a => {
+    const parent = a.parentNode;
+    while (a.firstChild) parent.insertBefore(a.firstChild, a);
+    parent.removeChild(a);
+  });
+  document.body.normalize(); // merge fragmented text nodes
+}
+
+let _loadingComments = false;
 async function loadComments() {
+  if (_loadingComments) return;
+  _loadingComments = true;
   // Pattern 8: cache-bust. Pattern 9: state=open.
   const url = `${API_BASE}/issues?state=open&labels=comment&per_page=100&_t=${Date.now()}`;
   let issues;
@@ -205,30 +242,72 @@ async function loadComments() {
     if (!r.ok) throw new Error(r.status);
     issues = await r.json();
   } catch (e) {
-    return; // network/auth/rate-limit failure — silent for dogfood
+    _loadingComments = false;
+    return; // network / auth / rate-limit failure — silent for dogfood
   }
   const countEl = document.getElementById("fb-count");
-  if (countEl) countEl.textContent = issues.length || "";
+  if (countEl) {
+    countEl.textContent = issues.length || "";
+    countEl.title = issues.length ? `${issues.length} open dashboard comment${issues.length > 1 ? "s" : ""} (click to view on GitHub)` : "";
+  }
+
+  unwrapExistingAnchors();
   const walk = walkText(document.body);
   const pageUrl = location.href.replace(/#.*$/, "");
+  const unanchored = [];
+
   for (const issue of issues) {
     const meta = parseIssueBody(issue.body || "");
     if (!meta.where || meta.where.replace(/#.*$/, "") !== pageUrl) continue;
-    if (!meta.quote) continue;
+    if (!meta.quote) { unanchored.push(issue); continue; }
     const loc = locateQuote(walk.text, meta.quote, meta.pre, meta.suf);
-    if (loc === -1) continue;
-    wrapRange(walk, loc.start, loc.end, "fb-anchor", {
-      sev: (meta.severity || "fyi").toLowerCase(),
+    if (loc === -1) { unanchored.push(issue); continue; }
+    const sev = (meta.severity || "fyi").toLowerCase();
+    const wraps = wrapRange(walk, loc.start, loc.end, "fb-anchor", {
+      sev,
       issue: String(issue.number),
       issueUrl: issue.html_url,
     });
+    // Add a small 💬 marker after the last wrapped node so the highlight is
+    // unmissable even on already-coloured backgrounds.
+    if (wraps.length) {
+      const marker = document.createElement("a");
+      marker.className = "fb-marker";
+      marker.dataset.sev = sev;
+      marker.href = issue.html_url;
+      marker.target = "_blank";
+      marker.rel = "noopener";
+      marker.textContent = `#${issue.number}`;
+      marker.title = `${meta.severity || "FYI"}: ${issue.title}`;
+      const last = wraps[wraps.length - 1];
+      last.parentNode.insertBefore(marker, last.nextSibling);
+    }
   }
-  // Click handler for anchors
-  document.body.addEventListener("click", (e) => {
-    const a = e.target.closest(".fb-anchor");
-    if (a) window.open(a.dataset.issueUrl, "_blank", "noopener");
-  });
+
+  renderUnanchoredBanner(unanchored);
+  _loadingComments = false;
 }
+
+function renderUnanchoredBanner(unanchored) {
+  document.querySelectorAll(".fb-unanchored").forEach(n => n.remove());
+  if (!unanchored.length) return;
+  const banner = document.createElement("div");
+  banner.className = "fb-unanchored";
+  banner.innerHTML = `
+    <strong>${unanchored.length}</strong> comment${unanchored.length > 1 ? "s" : ""} on this page
+    that couldn't be anchored to specific text (cross-content selection or text changed since filing).
+    ${unanchored.map(i => `<a href="${i.html_url}" target="_blank" rel="noopener">#${i.number}</a>`).join(" · ")}
+  `;
+  document.body.appendChild(banner);
+}
+
+document.addEventListener("click", (e) => {
+  const a = e.target.closest(".fb-anchor, .fb-marker");
+  if (!a) return;
+  e.preventDefault();
+  e.stopPropagation();
+  window.open(a.dataset.issueUrl || a.href, "_blank", "noopener");
+}, true);
 
 function parseIssueBody(body) {
   const out = {};
@@ -326,6 +405,12 @@ function initOverlay() {
   renderFreshness();
   loadComments();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) loadComments(); });
+  // Each page dispatches `dashboard:rendered` after its async IIFE sets
+  // page.innerHTML. Re-run freshness + comments against the now-populated DOM.
+  document.addEventListener("dashboard:rendered", () => {
+    renderFreshness();
+    loadComments();
+  });
 }
 
 if (document.readyState === "loading") {

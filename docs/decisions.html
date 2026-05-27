@@ -88,6 +88,7 @@ mountNav("decisions.html");
       const el = document.querySelector(location.hash);
       if (el && el.tagName.toLowerCase() === "details") el.open = true;
     }
+    document.dispatchEvent(new Event("dashboard:rendered"));
   } catch (e) { renderError(page, e); }
 })();
 </script>

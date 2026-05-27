@@ -125,7 +125,7 @@ mountNav("index.html");
         <p class="muted small" style="margin-top: 0.5rem;"><a href="timeline.html">All events →</a></p>
       </section>
 
-      <section class="section">
+      <section class="section" id="reader-questions">
         <h2>Reader questions this dashboard answers (Phase 1c)</h2>
         <ul style="padding-left: 1.25rem;">
           <li>What's drafted but not yet released?  → tiles above + <a href="drift.html">drift</a></li>
@@ -136,6 +136,7 @@ mountNav("index.html");
         </ul>
       </section>
     `;
+    document.dispatchEvent(new Event("dashboard:rendered"));
   } catch (e) { renderError(page, e); }
 })();
 </script>

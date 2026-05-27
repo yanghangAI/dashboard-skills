@@ -128,6 +128,7 @@ mountNav("trust.html");
         <p class="muted small">Metrics are derivable purely from <code>gh issue list</code> + label combinations + closure comments. No additional infrastructure required.</p>
       </section>
     `;
+    document.dispatchEvent(new Event("dashboard:rendered"));
   } catch (e) { renderError(page, e); }
 })();
 </script>

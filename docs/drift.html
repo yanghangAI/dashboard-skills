@@ -120,12 +120,13 @@ mountNav("drift.html");
           </details>` : ""}
       </section>
 
-      <section class="section">
+      <section class="section" id="drift-meaning">
         <h2>What "drift" means here</h2>
         <p>For a project mid-flight, drift = the gap between what the agent <em>planned</em> and what the repo currently <em>contains</em>. The agent updates <code>plan.json</code> and <code>claims.json</code> as it works; this page joins them so the human can see the gap without reading both files.</p>
         <p class="muted small">For training projects: drift would also surface "plan says AdamW, <code>train_args.txt</code> says Adam." For doc projects: "plan says ship v2 README, current README is v1."</p>
       </section>
     `;
+    document.dispatchEvent(new Event("dashboard:rendered"));
   } catch (e) { renderError(page, e); }
 })();
 </script>

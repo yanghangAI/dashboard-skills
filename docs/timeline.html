@@ -71,6 +71,7 @@ mountNav("timeline.html");
       page.querySelectorAll(".filter-bar button").forEach(b => {
         b.addEventListener("click", () => { activeKind = b.dataset.k; render(); });
       });
+      document.dispatchEvent(new Event("dashboard:rendered"));
     }
     render();
   } catch (e) { renderError(page, e); }
