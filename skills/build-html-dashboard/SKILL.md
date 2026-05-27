@@ -297,7 +297,7 @@ gh label create override   -R owner/repo --color fbca04
 2. GitHub identity = comment author (PAT or HMAC session).
 3. TextQuoteSelector context anchor (`pre`/`suf` of ~32 chars in the issue body).
 4. Multi-text-node walker for selections crossing `<code>` / `<b>`.
-5. Whitespace-normalized + case-insensitive fallbacks.
+5. Whitespace-normalized + case-insensitive fallbacks. **Implementation pitfall:** the naive form (`text.replace(/\s+/g, " ").indexOf(quote)`) returns offsets in the *normalized* text — but `wrapRange` walks nodes by *original*-text offsets, so using the normalized index silently mis-wraps. Use a whitespace-flexible regex against the original text instead: `new RegExp(escapeRegex(quote).replace(/\s+/g, "\\s+"))`. `m.index` then stays in original-text coordinates.
 6. Uppercase-container heuristic for all-caps headers.
 7. Optimistic local update on publish.
 8. Cache-bust the read (`cache: "no-store"` + `&_t=<ts>`).
@@ -309,7 +309,7 @@ gh label create override   -R owner/repo --color fbca04
 - Pattern 7 (optimistic local update) is **N/A** — submit redirects to github.com, not an in-place POST. Re-fetch on `visibilitychange` (when the user returns to the tab) instead.
 - The modal's "submit" button opens `github.com/<owner>/<repo>/issues/new` in a new tab with `title`, `body`, and `labels` query params prefilled. Total URL length stays under ~8 KB; long notes get truncated by some browsers.
 
-**Patterns 11–15: render lifecycle + visibility.** The original ten assume a single static document. Real v2 dashboards render content asynchronously from artifacts across multiple pages, with backgrounds that compete with highlights. These five emerged from this skill's own dogfood — without them, the overlay silently does nothing visible. Each cures a specific failure mode the spec did not catch on its own.
+**Patterns 11–12 (v2 additions): render lifecycle + edge cases.** v1 imagehide was a single-page static document with the standard inline-annotation UX (subtle highlight + click → modal). The 10 patterns above already specify that flow's *logic*; the visual styling stays as v1 (low-alpha tint + 1 px dashed `border-bottom`, indigo for FYI to distinguish from neutral greys; click any highlight opens the modal/popover with the comment content). Multi-page async dashboards expose two new failure classes that v1 didn't hit:
 
 11. **Decouple the overlay walk from the page's render lifecycle.** `loadComments` walks the DOM looking for quote anchors. If the page renders content via `await fetchJSON(...); page.innerHTML = ...`, the IIFE may finish *after* `DOMContentLoaded`, so a naive `loadComments()` at boot walks a near-empty body and anchors nothing. Two acceptable patterns:
     - **Preferred (custom event):** each page dispatches `document.dispatchEvent(new Event("dashboard:rendered"))` after its IIFE sets `page.innerHTML`. The overlay listens and re-runs `loadComments()` + `renderFreshness()`. Also re-run on `visibilitychange` (catches new GitHub-side comments when the user returns to the tab).
@@ -317,22 +317,11 @@ gh label create override   -R owner/repo --color fbca04
 
     Either way, `loadComments` MUST call `unwrapExistingAnchors()` first (un-wrap existing `.fb-anchor` spans, then `document.body.normalize()` to merge fragmented text nodes) so re-renders don't double-wrap.
 
-12. **Position-preserving whitespace-flexible match.** Pattern 5 (whitespace-normalized fallback) must keep positions in the *original* text — `wrapRange` indexes walk nodes by original-text offsets. The naive implementation (`text.replace(/\s+/g, " ").indexOf(quote)`) returns offsets in the *normalized* text and silently mis-wraps. Correct shape:
+12. **Click capture inside wrapped `<a>` + unanchored-comments fallback.** Two related cases v1 didn't hit because imagehide didn't wrap highlights inside nav links and didn't see cross-content selections:
+    - When the wrapped span sits inside an `<a>` (e.g. a nav link), a click on the highlight must not also follow the parent link. Use a body-level **capture-phase** click handler matching `.fb-anchor` and call `e.preventDefault()` + `e.stopPropagation()` before `showPopover(anchor)`.
+    - Some quotes can't be located on the page (cross-content selections; text that changed since filing). Don't drop them silently — show a small collapsed pill bottom-right (*"2 floating"*) that expands to a list on click. Each list item opens the same popover. They're still actionable via `fix-feedback`'s `Artifact:` / `Record:` fields; the human just doesn't get an inline highlight.
 
-    ```js
-    const wsFlex = escapeRegex(quote).replace(/\s+/g, "\\s+");
-    const m = text.match(new RegExp(wsFlex)); // m.index is in ORIGINAL text
-    ```
-
-    Same shape for the case-insensitive fallback (`new RegExp(wsFlex, "i")`).
-
-13. **Subtle severity-tinted highlight, not visually dominant.** Highlights are *indicators* ("comment here"), not *content*. Use a low-alpha tint (~0.10) + thin (1 px) dashed `border-bottom` with ~0.65 alpha. On hover, lift to ~0.22 alpha + solid border. Severity-distinct hues: blue (Fix), red (Block), amber (Override), **indigo (FYI)** — indigo specifically so the *default* severity stands out from accent-blue Fix *and* from neutral greys. Subtle by default avoids turning a busy oversight surface into a heat map.
-
-14. **Click-to-reveal popover; content stays hidden until asked for.** Don't bake comment content into the page (no inline notes, no large marker pills, no auto-expanded badges). On click of a `.fb-anchor`, open a small floating popover (~360 px) near the anchor containing: severity badge, issue number, **note text**, "filed by @user · 2 h ago", and a small link to the full GitHub issue. Popover dismisses on outside click and `Escape`. Position auto-flips above the anchor when it would otherwise fall below the viewport. *Reason:* the dashboard's spatial layout is the product; comments are metadata about the spatial layout, not part of it. They should be findable in one click, but invisible until then.
-
-15. **Click capture with `preventDefault` inside wrapped links + unanchored fallback toggle.** Two related cases:
-    - When the wrapped span sits inside an `<a>` (e.g. nav link), a click on the highlight must not also follow the parent link. Use a body-level **capture-phase** click handler matching `.fb-anchor` and call `e.preventDefault()` + `e.stopPropagation()` before `showPopover(anchor)`.
-    - Some quotes can't be located on the page (cross-content selections; text that changed since filing). Don't drop them silently — show a small collapsed pill bottom-right (*"2 floating"*) that expands to a list of unanchored issues on click. Each list item reuses the popover (no new tab); the badge + title + #N is enough metadata to triage. They're still actionable via `fix-feedback`'s `Artifact:` / `Record:` fields; the human just doesn't get an inline anchor.
+> **A retrospective worth flagging:** an earlier revision of this skill turned the original FYI-visibility CSS bug into a fake load-bearing pattern ("saturated palette + `#N` marker pills"). That was an over-correction — v1's UX (subtle highlight + click-popover) was already right; the bug was just *grey-on-grey for FYI*, fixed by picking indigo. **Before adding a new pattern from a dogfood failure, check whether v1 already solved it and the failure was just a misimplementation.**
 
 ### Phase 6 — Deploy
 
@@ -418,26 +407,24 @@ The 10 comment-overlay patterns are preserved. The auth modes (PAT / OAuth+Worke
 | Section header doesn't highlight | 5 | Pattern 6 (uppercase-container heuristic) missing. |
 | Selection across `<code>` fails | 5 | Pattern 4 (multi-text-node walker) missing. |
 | **Filed a comment, the highlight never appears on the page** | 5 | Pattern 11 missing — `loadComments` ran before the page's async IIFE finished. Dispatch `dashboard:rendered` after each page renders; overlay listens and re-walks. |
-| **Highlight lands a few chars off from the actual quote** | 5 | Pattern 12 missing — normalized fallback returned wrong-coordinate-space indexes. Use whitespace-flexible regex against the original text. |
-| **FYI comments are wrapped but invisible on the rendered page** | 5 | Pattern 13 missing — grey-on-grey on `.active` nav links or `--surface-alt` cards. Use indigo for FYI (distinguishes from greys); subtle but never zero contrast. |
-| **Dashboard looks like a heat map of saturated highlights** | 5 | Pattern 13 mis-tuned in the other direction — alpha too high or border too thick. Drop background alpha to ~0.10 and use a thin dashed border-bottom. Highlights are *indicators*, not content. |
-| **Comment count in nav non-zero but no way to discover what the comments say** | 5 | Pattern 14 missing — no click-to-reveal popover. Add a floating popover with note text + author + GitHub link, opened by clicking any `.fb-anchor`. |
-| **Click on highlight follows the parent link instead of opening the issue** | 5 | Pattern 15 missing — capture-phase click handler must `preventDefault` + `stopPropagation` on `.fb-anchor` before `showPopover()`. |
-| **Cross-section / multi-event selections submit but never render** | 5 | Pattern 15 fallback missing — render the unanchored-comments toggle so they're not invisible. `fix-feedback` still handles them via Artifact + Record fields. |
-| **Double-wrapped or fragmented text after re-renders** | 5 | `unwrapExistingAnchors()` + `document.body.normalize()` missing before each `loadComments` re-walk. |
+| **Highlight lands a few chars off from the actual quote** | 5 | Pattern 5 implemented naively — normalized fallback returned wrong-coordinate-space indexes. Use whitespace-flexible regex against the original text (see pattern 5's implementation pitfall). |
+| **FYI comments are wrapped but invisible on the rendered page** | 5 | Just a CSS bug — grey-on-grey on `.active` nav links or `--surface-alt` cards. Use indigo for FYI to distinguish from neutral greys. *Not a missing pattern, just a contrast oversight.* |
+| **Click on highlight follows the parent link instead of opening the popover** | 5 | Pattern 12 missing — capture-phase click handler must `preventDefault` + `stopPropagation` on `.fb-anchor` before showing the popover. |
+| **Cross-section / multi-event selections submit but never render** | 5 | Pattern 12 fallback missing — render the bottom-right unanchored-comments toggle so they're not invisible. `fix-feedback` still handles them via Artifact + Record fields. |
+| **Double-wrapped or fragmented text after re-renders** | 5 | `unwrapExistingAnchors()` + `document.body.normalize()` missing before each `loadComments` re-walk (part of pattern 11). |
 
 ## Dogfood before publishing
 
-The original 10 patterns came from imagehide's real use; patterns 11–15 came from this skill's own dogfood. **Spec review (including a strong Codex pass) does not catch implementation race conditions, coordinate-space bugs, or visibility-against-real-backgrounds issues.** Before declaring this methodology "done" on a new project:
+The original 10 patterns came from imagehide's real use; the two v2 additions (11, 12) came from this skill's own dogfood. **Spec review does not catch implementation race conditions or new-edge-case bugs — only real use does.** Before declaring this methodology "done" on a new project:
 
 1. Build the dashboard end-to-end (artifacts → pages → overlay → deploy).
 2. File at least one comment of each severity tier from a real browser session.
-3. Verify each highlight is visible-but-subtle (no heat map), and clicking opens an in-page popover with the note text — not a tab redirect.
+3. Verify each highlight is subtle (low-alpha + dashed underline), and clicking opens an in-page popover with the note — not a tab redirect.
 4. Press Escape / click outside — popover closes.
 5. File a comment whose quote spans two sections — verify the bottom-right *"N floating"* toggle appears and expands to a list of unanchored issues; clicking any item opens the same popover.
 6. Refresh and navigate between pages — verify `dashboard:rendered` re-walks correctly (no double-wraps; old anchors get unwrapped first).
 
-If any step silently fails, that's a missing pattern. Add it back here so the next project doesn't repeat the same discovery.
+If any step silently fails *and v1 didn't already solve it*, that's a missing pattern — add it back here. If v1 already solved it and the dogfood implementation just got it wrong, fix the implementation, not the methodology. The retrospective above notes one over-correction this skill made and reversed.
 
 ## See also
 

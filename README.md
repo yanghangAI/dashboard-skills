@@ -53,7 +53,7 @@ The methodology. Seven phases:
 2. **Artifact contract** — agree on `events.jsonl` / `plan.json` / `claims.json` / `decisions.jsonl` / `risks.json` / `blockers.json` under `docs/agent-state/<agent_id>/` (with `agent_id` on every record).
 3. **Page design** — five required oversight pages (Live Status, Activity Timeline, Decision Audit, Drift, Trust Calibration), plus project-specific optionals.
 4. **HTML implementation** — one file per page, no build step, **provenance + freshness rendered in the UI** per fact (stale ages green→grey→red).
-5. **Comment overlay** — 15 load-bearing patterns: 1–10 (interaction: TextQuoteSelector anchor, multi-text-node walker, optimistic update, …) + 11–15 (render lifecycle + visibility: `dashboard:rendered` event, position-preserving fallback, **subtle** severity-tinted highlight, **click-to-reveal popover**, click capture + unanchored toggle) + **4-tier severity radio** (FYI / Fix / Block / Override). The dashboard surface stays calm; comments are revealed only when the human clicks a highlight.
+5. **Comment overlay** — 12 load-bearing patterns: 1–10 (v1 imagehide's UX: TextQuoteSelector anchor, multi-text-node walker, subtle highlight → click → modal/popover, severity radio, …) + 11–12 (v2 dogfood additions: `dashboard:rendered` event so the overlay re-walks after each page's async render; capture-phase click inside wrapped `<a>` + unanchored-comments fallback toggle) + **4-tier severity radio** (FYI / Fix / Block / Override). v1's UX was already right; v2 only adds the multi-page-async pieces v1 didn't need.
 6. **Deploy** — `gh-pages` worktree mirrors HTML + `assets/` + `docs/agent-state/`.
 7. **Maintenance** — install `fix-feedback`; it consumes Fix/Block issues and edits artifacts.
 
@@ -79,7 +79,7 @@ v2 is opinionated and operational, not a doc-site quick-fix. Adoption requires:
 
 - **Artifact discipline.** Every claim on every page traces to a structured artifact under `docs/agent-state/<agent_id>/`. The agent must write these as a side-effect of its work, not as a separate documentation task. If no agent will write them, the dashboard goes stale on day 2.
 - **5 required oversight pages** (Live Status, Activity Timeline, Decision Audit, Drift, Trust Calibration) — each ~150–300 lines of hand-authored HTML.
-- **Comment overlay** with the 15 load-bearing patterns from `build-html-dashboard` Phase 5 (~400 lines of vanilla JS). Patterns 1–10 cover comment interaction; 11–15 cover render lifecycle + visibility. Public-passthrough mode skips patterns 2 and 7; PAT and OAuth+Worker need all 15.
+- **Comment overlay** with the 12 load-bearing patterns from `build-html-dashboard` Phase 5 (~400 lines of vanilla JS). Patterns 1–10 are v1's original (interaction logic + the subtle-highlight-then-popover UX). Patterns 11–12 are the v2 dogfood's additions (decouple overlay walk from async page render; click capture inside wrapped `<a>` + unanchored fallback). Public-passthrough mode skips patterns 2 and 7; PAT and OAuth+Worker need all 12.
 - **One-time setup:** 4 GitHub labels (`comment`, `claude-fix`, `block`, `override`), Pages enablement, and an artifact-schema decision per agent. ~10 minutes if the agent's outputs are already structured; ~2 hours if you have to retrofit a schema onto unstructured `.md` walls.
 
 **Ongoing cost:** the agent writes artifacts as it works. `fix-feedback` consumes comments and edits artifacts. If those two flows hold, the dashboard stays fresh by itself.
