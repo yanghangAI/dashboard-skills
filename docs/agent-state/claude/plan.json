@@ -1,14 +1,14 @@
 {
   "agent_id": "claude",
-  "updated_at": "2026-05-27T04:35:00Z",
-  "current_focus": "Build v2 dogfood dashboard for this repo",
+  "updated_at": "2026-05-27T04:37:30Z",
+  "current_focus": "Promote v2 drafts to release (s5) + add public-passthrough auth mode to the methodology (s7)",
   "steps": [
     {"id": "s1", "summary": "Reframe build-html-dashboard methodology around AI oversight (not doc-site generation)", "status": "verified", "evidence": ["skills/build-html-dashboard/SKILL.md.draft"], "ts_started": "2026-05-27T03:00:00Z", "ts_completed": "2026-05-27T03:30:00Z"},
     {"id": "s2", "summary": "Address Codex review pass 1 — top-5 ranked critique (artifacts vs rendering, activity stream, drift, freshness UI, oversight-native patterns)", "status": "verified", "evidence": ["dec-001", "dec-002", "dec-003"], "ts_started": "2026-05-27T03:48:00Z", "ts_completed": "2026-05-27T04:00:00Z"},
     {"id": "s3", "summary": "Address Codex review pass 2 — schema/label inconsistencies + unaddressed items (8 fixes across 4 drafts)", "status": "verified", "evidence": ["dec-004", "dec-005"], "ts_started": "2026-05-27T04:04:00Z", "ts_completed": "2026-05-27T04:25:00Z"},
-    {"id": "s4", "summary": "Build dogfood dashboard demonstrating the methodology on this repo", "status": "running", "evidence": ["docs/agent-state/claude/"], "ts_started": "2026-05-27T04:35:00Z"},
+    {"id": "s4", "summary": "Build dogfood dashboard demonstrating the methodology on this repo", "status": "verified", "evidence": ["docs/", "commit abbe358"], "ts_started": "2026-05-27T04:35:00Z", "ts_completed": "2026-05-27T04:37:20Z"},
     {"id": "s5", "summary": "Commit v2 drafts — replace originals with rewrite", "status": "proposed"},
-    {"id": "s6", "summary": "Deploy gh-pages from /docs subtree on main", "status": "proposed"},
+    {"id": "s6", "summary": "Deploy Pages from /docs on main (replaces gh-pages worktree mirror for this dogfood)", "status": "verified", "evidence": ["GitHub Pages build 1016920840", "https://yanghangai.github.io/dashboard-skills/"], "ts_started": "2026-05-27T04:37:00Z", "ts_completed": "2026-05-27T04:37:22Z"},
     {"id": "s7", "summary": "Add public-passthrough as a third auth mode in the methodology", "status": "proposed"}
   ]
 }

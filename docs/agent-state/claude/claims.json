@@ -1,6 +1,6 @@
 {
   "agent_id": "claude",
-  "updated_at": "2026-05-27T04:35:00Z",
+  "updated_at": "2026-05-27T04:37:30Z",
   "claims": [
     {"id": "repo_url", "value": "https://github.com/yanghangAI/dashboard-skills", "source": "git remote get-url origin", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "command-output"},
     {"id": "branch", "value": "main", "source": "git branch --show-current", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "command-output"},
@@ -13,7 +13,8 @@
     {"id": "last_commit_subject", "value": "feat(build-html-dashboard): ask PAT vs OAuth+Worker auth-mode upfront", "source": "git log -1 --format=%s", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "command-output"},
     {"id": "codex_review_passes_completed", "value": 2, "source": "session", "verified_at": "2026-05-27T04:25:00Z", "confidence": "high", "evidence_kind": "human-assertion"},
     {"id": "codex_findings_addressed", "value": "all 5 top-ranked from pass 1 + all 8 from pass 2", "source": "session", "verified_at": "2026-05-27T04:25:00Z", "confidence": "high", "evidence_kind": "human-assertion"},
-    {"id": "v2_release_status", "value": "drafts ready; not committed; dogfood dashboard in progress", "source": "session", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "human-assertion"},
+    {"id": "v2_release_status", "value": "drafts ready; not committed; dogfood dashboard deployed at https://yanghangai.github.io/dashboard-skills/", "source": "session + Pages build 1016920840", "verified_at": "2026-05-27T04:37:30Z", "confidence": "high", "evidence_kind": "command-output"},
+    {"id": "pages_url", "value": "https://yanghangai.github.io/dashboard-skills/", "source": "gh api .../pages", "verified_at": "2026-05-27T04:37:12Z", "confidence": "high", "evidence_kind": "command-output"},
     {"id": "github_issues_open", "value": 0, "source": "https://api.github.com/repos/yanghangAI/dashboard-skills/issues?state=open", "verified_at": "2026-05-27T04:35:00Z", "confidence": "medium", "evidence_kind": "model-inference"}
   ]
 }
