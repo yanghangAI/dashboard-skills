@@ -309,7 +309,30 @@ gh label create override   -R owner/repo --color fbca04
 - Pattern 7 (optimistic local update) is **N/A** — submit redirects to github.com, not an in-place POST. Re-fetch on `visibilitychange` (when the user returns to the tab) instead.
 - The modal's "submit" button opens `github.com/<owner>/<repo>/issues/new` in a new tab with `title`, `body`, and `labels` query params prefilled. Total URL length stays under ~8 KB; long notes get truncated by some browsers.
 
-See the v1 SKILL.md or the reference implementation for the patterns' details.
+**Patterns 11–15: render lifecycle + visibility.** The original ten assume a single static document. Real v2 dashboards render content asynchronously from artifacts across multiple pages, with backgrounds that compete with highlights. These five emerged from this skill's own dogfood — without them, the overlay silently does nothing visible. Each cures a specific failure mode the spec did not catch on its own.
+
+11. **Decouple the overlay walk from the page's render lifecycle.** `loadComments` walks the DOM looking for quote anchors. If the page renders content via `await fetchJSON(...); page.innerHTML = ...`, the IIFE may finish *after* `DOMContentLoaded`, so a naive `loadComments()` at boot walks a near-empty body and anchors nothing. Two acceptable patterns:
+    - **Preferred (custom event):** each page dispatches `document.dispatchEvent(new Event("dashboard:rendered"))` after its IIFE sets `page.innerHTML`. The overlay listens and re-runs `loadComments()` + `renderFreshness()`. Also re-run on `visibilitychange` (catches new GitHub-side comments when the user returns to the tab).
+    - **Fallback (MutationObserver):** if you can't modify the pages, observe `document.body` child-list changes with a ~150 ms debounce and re-run on quiet.
+
+    Either way, `loadComments` MUST call `unwrapExistingAnchors()` first (un-wrap existing `.fb-anchor` spans, then `document.body.normalize()` to merge fragmented text nodes) so re-renders don't double-wrap.
+
+12. **Position-preserving whitespace-flexible match.** Pattern 5 (whitespace-normalized fallback) must keep positions in the *original* text — `wrapRange` indexes walk nodes by original-text offsets. The naive implementation (`text.replace(/\s+/g, " ").indexOf(quote)`) returns offsets in the *normalized* text and silently mis-wraps. Correct shape:
+
+    ```js
+    const wsFlex = escapeRegex(quote).replace(/\s+/g, "\\s+");
+    const m = text.match(new RegExp(wsFlex)); // m.index is in ORIGINAL text
+    ```
+
+    Same shape for the case-insensitive fallback (`new RegExp(wsFlex, "i")`).
+
+13. **Saturated, distinct highlight palette per severity.** Highlights live inside elements with their own backgrounds (`.active` nav links, `--surface-alt` cards). A muted/grey FYI tier is invisible on `--surface-alt` — and FYI is the *default* severity, so most comments vanish. Use four saturated, distinct hues with ≥0.22 alpha background + ≥0.85 alpha 2 px `border-bottom`: blue (Fix), red (Block), amber (Override), **indigo (FYI)** — indigo specifically so it stands out from accent-blue Fix *and* from greys. Verify against every surface the dashboard ships before declaring done.
+
+14. **Render an unmissable marker next to each anchor.** Background tints disappear against busy content. After `wrapRange` wraps the quote, append a small monospace pill (`#N`, severity-coloured, linking to the issue) right after the last wrapped node. This makes the existence of a comment visible even when the highlight blends in.
+
+15. **Click capture with `preventDefault` inside wrapped links + unanchored fallback banner.** Two related cases:
+    - When the wrapped span sits inside an `<a>` (e.g. nav link), a click on the highlight must not also follow the parent link. Use a body-level **capture-phase** click handler matching `.fb-anchor, .fb-marker` and call `e.preventDefault()` + `e.stopPropagation()` before `window.open(issueUrl)`.
+    - Some quotes can't be located on the page (cross-content selections; text that changed since filing). Don't drop them silently — collect them into a small floating bottom-right banner: *"2 comments on this page that couldn't be anchored: #4 #7"*. They're still actionable via `fix-feedback`'s `Artifact:` / `Record:` fields; the human just doesn't get inline highlights.
 
 ### Phase 6 — Deploy
 
@@ -394,6 +417,25 @@ The 10 comment-overlay patterns are preserved. The auth modes (PAT / OAuth+Worke
 | `redirect_uri_mismatch` on sign-in | 1a, 6 | OAuth App callback URL doesn't match deployed `oauth-return.html`. |
 | Section header doesn't highlight | 5 | Pattern 6 (uppercase-container heuristic) missing. |
 | Selection across `<code>` fails | 5 | Pattern 4 (multi-text-node walker) missing. |
+| **Filed a comment, the highlight never appears on the page** | 5 | Pattern 11 missing — `loadComments` ran before the page's async IIFE finished. Dispatch `dashboard:rendered` after each page renders; overlay listens and re-walks. |
+| **Highlight lands a few chars off from the actual quote** | 5 | Pattern 12 missing — normalized fallback returned wrong-coordinate-space indexes. Use whitespace-flexible regex against the original text. |
+| **FYI comments are wrapped but invisible on the rendered page** | 5 | Pattern 13 missing — grey-on-grey on `.active` nav links or `--surface-alt` cards. Use saturated indigo for FYI; verify on every surface the dashboard ships. |
+| **Comment count in nav is non-zero but no marks visible anywhere** | 5 | Pattern 14 missing (no `#N` marker pills) + likely pattern 13 (palette). Add the marker pills and saturate the highlight palette. |
+| **Click on highlight follows the parent link instead of opening the issue** | 5 | Pattern 15 missing — capture-phase click handler must `preventDefault` + `stopPropagation` on `.fb-anchor`. |
+| **Cross-section / multi-event selections submit but never render** | 5 | Pattern 15 fallback missing — render the unanchored-comments banner so they're not invisible. `fix-feedback` still handles them via Artifact + Record fields. |
+| **Double-wrapped or fragmented text after re-renders** | 5 | `unwrapExistingAnchors()` + `document.body.normalize()` missing before each `loadComments` re-walk. |
+
+## Dogfood before publishing
+
+The original 10 patterns came from imagehide's real use; patterns 11–15 came from this skill's own dogfood. **Spec review (including a strong Codex pass) does not catch implementation race conditions, coordinate-space bugs, or visibility-against-real-backgrounds issues.** Before declaring this methodology "done" on a new project:
+
+1. Build the dashboard end-to-end (artifacts → pages → overlay → deploy).
+2. File at least one comment of each severity tier from a real browser session.
+3. Verify each highlight renders, the `#N` marker pill appears, and clicking the marker opens the issue.
+4. File a comment whose quote spans two sections — verify the unanchored banner appears with the issue link.
+5. Refresh and navigate between pages — verify `dashboard:rendered` re-walks correctly (no double-wraps; old anchors get unwrapped first).
+
+If any step silently fails, that's a missing pattern. Add it back here so the next project doesn't repeat the same discovery.
 
 ## See also
 

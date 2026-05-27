@@ -15,6 +15,7 @@
     {"id": "codex_findings_addressed", "value": "all 5 top-ranked from pass 1 + all 8 from pass 2", "source": "session", "verified_at": "2026-05-27T04:25:00Z", "confidence": "high", "evidence_kind": "human-assertion"},
     {"id": "v2_release_status", "value": "released — drafts promoted to v1 paths; dogfood dashboard live", "source": "git log + find . -name '*.draft'", "verified_at": "2026-05-27T05:00:00Z", "confidence": "high", "evidence_kind": "command-output"},
     {"id": "methodology_auth_modes", "value": 3, "source": "skills/build-html-dashboard/SKILL.md Phase 1a", "verified_at": "2026-05-27T05:00:00Z", "confidence": "high", "evidence_kind": "source-file"},
+    {"id": "overlay_load_bearing_patterns", "value": 15, "source": "skills/build-html-dashboard/SKILL.md Phase 5", "verified_at": "2026-05-27T13:55:00Z", "confidence": "high", "evidence_kind": "source-file"},
     {"id": "pages_url", "value": "https://yanghangai.github.io/dashboard-skills/", "source": "gh api .../pages", "verified_at": "2026-05-27T04:37:12Z", "confidence": "high", "evidence_kind": "command-output"},
     {"id": "github_issues_open", "value": 0, "source": "https://api.github.com/repos/yanghangAI/dashboard-skills/issues?state=open", "verified_at": "2026-05-27T04:35:00Z", "confidence": "medium", "evidence_kind": "model-inference"}
   ]

@@ -75,7 +75,7 @@ Bodies follow the dashboard's template:
 
 **Resolve the target (in order of preference):**
 
-1. **`Artifact:` field present** — use it directly. This is the fast, unambiguous path; the dashboard's overlay populates `Artifact:` / `Record:` from `data-artifact` / `data-record-id` ancestors of the selected text. If `Record:` is also present, locate that record inside the file:
+1. **`Artifact:` field present** — use it directly. This is the fast, unambiguous path; the dashboard's overlay populates `Artifact:` / `Record:` from `data-artifact` / `data-record-id` ancestors of the selected text. **This path also handles unanchored comments** — ones whose quote spans multiple sections or whose page text changed since filing, which appear in the dashboard's unanchored-banner instead of as inline highlights. `fix-feedback` doesn't need the quote location; it only needs the artifact + record id. So unanchored is not unactionable. If `Record:` is also present, locate that record inside the file:
    - **JSONL files** (`events.jsonl`, `decisions.jsonl`): line-grep for `"id": "<value>"`.
    - **Top-level array JSON** (`plan.json` → `steps[]`, `risks.json` → `risks[]`, `blockers.json` → `blockers[]`): use `jq` to find the array element by `id` — e.g. `jq '.steps[] | select(.id == "s2")' plan.json`.
    - **Flat-keyed JSON** (`claims.json`): search at the top level by `id`.

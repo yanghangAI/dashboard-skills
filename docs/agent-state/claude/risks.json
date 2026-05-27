@@ -1,12 +1,12 @@
 {
   "agent_id": "claude",
-  "updated_at": "2026-05-27T05:00:00Z",
+  "updated_at": "2026-05-27T13:55:00Z",
   "risks": [
     {"id": "r1", "summary": "Concept inflation — v2 is now an operational protocol (7 phases, 6 artifacts, 5 required pages, provenance UI, 4-tier severity).", "severity": "medium", "mitigation": "README now has 'What this costs to adopt' section + 3 smaller-slice options; surfaced before Install.", "status": "resolved", "resolved_at": "2026-05-27T04:55:00Z"},
     {"id": "r2", "summary": "Schema cost scales with agent count — 6 files per agent under docs/agent-state/<agent>/. No generation/validation tooling provided.", "severity": "low", "mitigation": "Multi-agent guidance added in Phase 1b: split only when independent decisions warrant it; collapse roles by default. Future work: agent-state-init script + jq schema linter.", "status": "accepted"},
     {"id": "r3", "summary": "Deploy churn — every artifact correction triggers a gh-pages mirror push. Active oversight loops will generate many small commits.", "severity": "low", "mitigation": "Could batch via cron deploy; not implemented. For Pages-from-/docs setups (like this dogfood) the mirror is just a regular commit, so deploy churn = repo churn.", "status": "open"},
     {"id": "r4", "summary": "v1 reference implementation (yanghangAI/imagehide) no longer matches v2 methodology. Users who copy it verbatim will get the doc-site shape.", "severity": "medium", "mitigation": "README now lists this repo (yanghangAI/dashboard-skills) as the v2 reference implementation; imagehide is labeled v1 with explicit 'don't copy verbatim' warning.", "status": "resolved", "resolved_at": "2026-05-27T04:55:00Z"},
-    {"id": "r5", "summary": "TextQuoteSelector anchoring may fail on text rendered dynamically from artifact updates (the very thing the dashboard does most).", "severity": "low", "mitigation": "Patterns 4-6 from v1 carried over; needs real-world stress test. Dogfood deployment is the first test.", "status": "open"},
+    {"id": "r5", "summary": "TextQuoteSelector anchoring may fail on text rendered dynamically from artifact updates (the very thing the dashboard does most).", "severity": "low", "mitigation": "Stress-tested in dogfood. Found and fixed: pattern 11 (dashboard:rendered event + unwrap-before-rewrap), pattern 12 (position-preserving fallback). Both now in methodology Phase 5.", "status": "resolved", "resolved_at": "2026-05-27T13:50:00Z"},
     {"id": "r6", "summary": "Public-passthrough auth mode is not yet in the published methodology — only PAT and OAuth+Worker are documented.", "severity": "low", "mitigation": "Added as third auth mode in Phase 1a; full row in the Auth modes table; pattern-2 and pattern-7 caveats noted in Phase 5; pass-through-specific deploy shortcut in Phase 6.", "status": "resolved", "resolved_at": "2026-05-27T04:55:00Z"}
   ]
 }
