@@ -7,11 +7,23 @@
 <link rel="stylesheet" href="assets/shared.css">
 <link rel="stylesheet" href="assets/feedback.css">
 <style>
-  .ev { display: grid; grid-template-columns: 11rem 7rem 1fr; gap: 0.6rem 1rem; padding: 0.45rem 0; border-bottom: 1px solid var(--border); align-items: baseline; }
+  .ev {
+    display: grid;
+    grid-template-columns: 11rem 7rem 1fr;
+    gap: 0.6rem 1rem;
+    padding: 0.85rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    align-items: baseline;
+  }
+  .ev:first-child { padding-top: 0.5rem; }
   .ev:last-child { border-bottom: none; }
+  .ev:nth-child(even) { background: var(--surface-alt); }
   .ev .when { color: var(--muted); font-family: var(--mono); font-size: 0.82rem; }
   .ev .kind { font-family: var(--mono); }
+  .ev .what { min-width: 0; }
   .ev .what code { font-size: 0.85em; }
+  .ev .what .prov { margin-top: 0.2rem; }
+  .ev .what .prov + .prov { margin-top: 0.1rem; }
   .filter-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   .filter-bar button {
     border: 1px solid var(--border); background: var(--surface); color: var(--text);
