@@ -1,99 +1,48 @@
 # dashboard-skills
 
-A small bundle of Claude Code skills for standing up a **human control surface over AI agents' work** — a place to see what the agents are doing, what they decided, where they've drifted from plan, and to flag corrections that the agents act on.
-
-Not a doc-site generator. Markdown-to-HTML conversion is one bootstrap path into this loop, not the product.
-
-## The loop
-
-```
-agent does work
-   │
-   ▼
-agent writes structured artifacts          (plan.json, events.jsonl, decisions.jsonl, …)
-   │
-   ▼
-dashboard renders artifacts as HTML        (Status, Timeline, Decisions, Drift, Trust)
-   │
-   ▼
-human reads dashboard, flags issues        (FYI / Fix / Block / Override, anchored to text)
-   │
-   ▼
-issues land in GitHub                       (4 severity tiers, label-encoded — see below)
-   │
-   ▼
-fix-feedback edits the artifacts            (not the HTML — HTML re-renders on next load)
-   │                                         Fix     → edit artifact + close
-   │                                         Block   → edit artifact + wait for human unblock
-   │                                         Override→ append override to decisions.jsonl + close
-   │                                         FYI     → no action; human closes on read
-   │
-   ▼
-loop
-```
-
-The artifacts are the source of truth. The HTML is a view. The comments are the steering wheel.
+A small bundle for turning a project's accumulated `.md` walls into a navigable HTML dashboard with inline commenting backed by GitHub Issues — packaged as Claude Code skills plus a slash-command template.
 
 ## What's in here
 
 ```
 skills/
-  build-html-dashboard/   methodology — 7 phases, from agent discovery to maintenance loop
-  html-effectiveness/     required dep — 9 layout primitives the oversight pages are built from
-  fix-feedback/           runtime — drains the comment+claude-fix issue queue, edits artifacts
+  build-html-dashboard/   methodology skill — six-phase process for designing the dashboard
+  html-effectiveness/     required dep — 9 spatial patterns each page picks from
+  fix-feedback/           runtime skill — processes the comment+claude-fix issue queue
 templates/
-  fix-feedback.md         per-project slash-command form (fallback when URL→artifact mapping is unusual)
+  fix-feedback.md         per-project slash-command form (fallback when URL→file mapping needs to be spelled out by hand)
 ```
 
 ### `skills/build-html-dashboard`
 
-The methodology. Seven phases:
+Methodology (not a template). Phases:
 
-1. **Discover** — auth mode (PAT vs OAuth+Worker), inventory the agents, list the overseer's questions.
-2. **Artifact contract** — agree on `events.jsonl` / `plan.json` / `claims.json` / `decisions.jsonl` / `risks.json` / `blockers.json` under `docs/agent-state/<agent_id>/` (with `agent_id` on every record).
-3. **Page design** — five required oversight pages (Live Status, Activity Timeline, Decision Audit, Drift, Trust Calibration), plus project-specific optionals.
-4. **HTML implementation** — one file per page, no build step, **provenance + freshness rendered in the UI** per fact (stale ages green→grey→red).
-5. **Comment overlay** — 12 load-bearing patterns: 1–10 (v1 imagehide's UX: TextQuoteSelector anchor, multi-text-node walker, subtle highlight → click → modal/popover, severity radio, …) + 11–12 (v2 dogfood additions: `dashboard:rendered` event so the overlay re-walks after each page's async render; capture-phase click inside wrapped `<a>` + unanchored-comments fallback toggle) + **4-tier severity radio** (FYI / Fix / Block / Override). v1's UX was already right; v2 only adds the multi-page-async pieces v1 didn't need.
-6. **Deploy** — `gh-pages` worktree mirrors HTML + `assets/` + `docs/agent-state/`.
-7. **Maintenance** — install `fix-feedback`; it consumes Fix/Block issues and edits artifacts.
-
-The dashboard's page structure, content, and tone are derived from the project. The five required pages are non-negotiable; everything else is project-specific.
+1. Audience analysis + source-of-truth mode (ASK the user: docs-only / free exploration / combine).
+2. Page design from first principles — group by **reader question**, not source artifact.
+3. HTML implementation (no build step, dual-theme, info-dense).
+4. Inline comment system (10 load-bearing patterns, each curing a specific failure mode).
+5. Deploy via `gh-pages` worktree with `.md` link rewriting.
+6. Maintenance loop using `/fix-feedback` (see template below).
 
 ### `skills/html-effectiveness`
 
-Catalog of nine spatial primitives (Comparison Board, Annotated Timeline, Knowledge Explorer, Interactive Report, Decision Matrix, Kanban, Slide Deck, Design Tokens, Code Review Board). The oversight pages in `build-html-dashboard` Phase 3 are built FROM these primitives.
+Catalog of nine spatial patterns (Comparison Board, Annotated Timeline, Knowledge Explorer, Interactive Report, Decision Matrix, Kanban, Slide Deck, Design Tokens, Code Review Board). Each dashboard page picks exactly one. `build-html-dashboard` declares this as a **REQUIRED** background skill.
 
 ### `skills/fix-feedback`
 
-Runtime half of Phase 7. Reads `state=open` `comment`-labeled issues from the dashboard's overlay, classifies by label set into Fix / Block / Override / FYI, and acts per tier: Fix → edit artifact + close; Block → edit + leave open with resolution comment; Override → append override record to `decisions.jsonl` + close; FYI → skip. Mirrors to `gh-pages` after artifact edits.
+Runtime half of Phase 6 of `build-html-dashboard`. Reads `state=open` issues with both `comment` AND `claude-fix` labels, parses the dashboard's issue-body template (`Where:` / `Quote:` / `Note:`), maps each page URL to its source file, applies the minimum edit, commits, mirrors to `gh-pages` if any HTML/assets changed, and closes the issue.
 
-Auto-derives `<OWNER>/<REPO>` from `git remote get-url origin`. Asks only when detection fails.
+Auto-derives `<OWNER>/<REPO>` from `git remote get-url origin`. Defaults the GitHub Pages base URL to `https://<OWNER>.github.io/<REPO>/`. Asks the user only when detection fails (non-GitHub remote, custom domain, non-default Pages branch). No per-project config to maintain.
 
 ### `templates/fix-feedback.md` (fallback)
 
-Per-project slash-command form, with placeholders for `<OWNER>/<REPO>`, `<PAGES_BASE_URL>`, and the URL→artifact mapping. Use this when the project's URL→artifact mapping isn't a clean strip-prefix (multi-site repos, custom domains, agents writing to non-obvious paths).
-
-## What this costs to adopt
-
-v2 is opinionated and operational, not a doc-site quick-fix. Adoption requires:
-
-- **Artifact discipline.** Every claim on every page traces to a structured artifact under `docs/agent-state/<agent_id>/`. The agent must write these as a side-effect of its work, not as a separate documentation task. If no agent will write them, the dashboard goes stale on day 2.
-- **5 required oversight pages** (Live Status, Activity Timeline, Decision Audit, Drift, Trust Calibration) — each ~150–300 lines of hand-authored HTML.
-- **Comment overlay** with the 12 load-bearing patterns from `build-html-dashboard` Phase 5 (~400 lines of vanilla JS). Patterns 1–10 are v1's original (interaction logic + the subtle-highlight-then-popover UX). Patterns 11–12 are the v2 dogfood's additions (decouple overlay walk from async page render; click capture inside wrapped `<a>` + unanchored fallback). Public-passthrough mode skips patterns 2 and 7; PAT and OAuth+Worker need all 12.
-- **One-time setup:** 4 GitHub labels (`comment`, `claude-fix`, `block`, `override`), Pages enablement, and an artifact-schema decision per agent. ~10 minutes if the agent's outputs are already structured; ~2 hours if you have to retrofit a schema onto unstructured `.md` walls.
-
-**Ongoing cost:** the agent writes artifacts as it works. `fix-feedback` consumes comments and edits artifacts. If those two flows hold, the dashboard stays fresh by itself.
-
-**Smaller slices that still pay.** Don't need the full loop on day 1?
-- Just the artifact schema + a single Live Status page → human-readable agent state, no overlay, no fix-feedback. Good first step.
-- Schema + pages + overlay, no `fix-feedback` skill → humans file issues, humans fix them. Eliminates the agent-edit step.
-- Full v2 → comments become artifact edits become re-renders, closed by the agent.
-
-**Don't use v2 for:** single-document docs (just edit the markdown), marketing pages (use `frontend-design`), or projects without any agent doing autonomous work (no artifacts → nothing for the dashboard to render).
+The earlier per-project slash-command form, with `<OWNER>/<REPO>` and `<PAGES_BASE_URL>` placeholders to substitute. Use this when the project's URL→file mapping isn't a clean strip-prefix — multi-site repos, custom domains, HTML rendered from `.md` in non-obvious locations. Copy to `.claude/commands/fix-feedback.md` and edit by hand.
 
 ## Install
 
 ### Claude Code skills
+
+Drop the skill directories into your skills path:
 
 ```bash
 git clone https://github.com/yanghangAI/dashboard-skills
@@ -104,39 +53,34 @@ cp -r dashboard-skills/skills/fix-feedback         ~/.claude/skills/
 
 Skills are auto-discovered by Claude Code at session start.
 
-### GitHub labels (one-time, per repo)
-
-```bash
-gh label create comment    -R <OWNER>/<REPO> --color 5319e7
-gh label create claude-fix -R <OWNER>/<REPO> --color 0e8a16
-gh label create block      -R <OWNER>/<REPO> --color b60205
-gh label create override   -R <OWNER>/<REPO> --color fbca04
-```
-
 ### Fallback: per-project slash command
 
-Only needed if the `fix-feedback` skill's auto-detection doesn't fit your project (multi-site, custom URL→artifact mapping).
+Only needed if the `fix-feedback` skill's auto-detection doesn't fit your project (see its "When to prefer the template" section).
 
 ```bash
 mkdir -p <your-project>/.claude/commands
 cp dashboard-skills/templates/fix-feedback.md <your-project>/.claude/commands/fix-feedback.md
-# edit: replace <OWNER>/<REPO> and <PAGES_BASE_URL>, fill in the URL→artifact mapping
+# then edit the file: replace <OWNER>/<REPO> and <PAGES_BASE_URL>, and adjust the URL→file mapping in Step 2
+```
+
+GitHub labels the maintenance loop expects:
+
+```bash
+gh label create comment    -R <OWNER>/<REPO> --color 5319e7
+gh label create claude-fix -R <OWNER>/<REPO> --color 0e8a16
 ```
 
 ## Using it on a new project
 
 In Claude Code, ask:
 
-> Build an oversight dashboard for this project.
+> Build an HTML dashboard for this project.
 
-The `build-html-dashboard` skill activates and walks you through Phase 1 (auth mode, agent inventory, overseer questions). Don't skip the artifact-contract phase (Phase 2) — it's what makes the loop work.
+The `build-html-dashboard` skill activates and walks you through Phase 1 (source-of-truth mode, reader questions, staleness map). Don't skip — the skill explicitly warns against templating the page set, mirroring `.md` 1:1, or auto-generating HTML.
 
-**Bootstrapping from existing `.md` walls.** If the project already has `HANDOFF.md` / `PLAN.md` / `MODEL_CARD.md` walls, do a one-shot ingest: parse them into the artifact schema once, then archive (`docs/legacy/`) or delete. Two surfaces drifting apart is the failure mode the artifact contract prevents.
+## Reference implementation
 
-## Reference implementations
-
-- **v2 (this repo, dogfood):** [https://yanghangai.github.io/dashboard-skills/](https://yanghangai.github.io/dashboard-skills/) — `docs/index.html` (Live Status) + `docs/{timeline,decisions,drift,trust}.html` + `docs/agent-state/claude/` artifacts + `docs/assets/{shared,feedback}.{css,js}`. Shows the v2 methodology applied to this project itself; the agent is this Claude session, artifacts are the session's plan / events / decisions / claims / risks / blockers. **Public-passthrough auth mode** (the third auth mode in `build-html-dashboard` Phase 1a). Pages serves from `main /docs` — no separate `gh-pages` branch.
-- **v1 (pre-reframing):** [`yanghangAI/imagehide`](https://github.com/yanghangAI/imagehide) — `index.html`, `docs/html/{spec,design,plan,ops}.html`, `assets/feedback.{css,js}`. Read for the comment-overlay shape and `gh-pages` worktree deploy. **Don't copy verbatim** — its page structure is the v1 reader-question design, not the v2 oversight-page set.
+A working dashboard built with this methodology lives at [`yanghangAI/imagehide`](https://github.com/yanghangAI/imagehide) — `index.html`, `docs/html/{spec,design,plan,ops}.html`, `assets/feedback.{css,js}`. Read it for shape, but the skill is explicit: **don't copy verbatim**, derive your page structure from Phase 1–2 of your own project.
 
 ## See also
 
