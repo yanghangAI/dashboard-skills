@@ -1,0 +1,12 @@
+{
+  "agent_id": "claude",
+  "updated_at": "2026-05-27T04:35:00Z",
+  "risks": [
+    {"id": "r1", "summary": "Concept inflation — v2 is now an operational protocol (7 phases, 6 artifacts, 5 required pages, provenance UI, 4-tier severity). README leads with the loop but adoption-cost is still under-acknowledged.", "severity": "medium", "mitigation": "Surface adoption cost in README install section; provide a 'minimal viable dashboard' starter", "status": "open"},
+    {"id": "r2", "summary": "Schema cost scales with agent count — 6 files per agent under docs/agent-state/<agent>/. No generation/validation tooling provided; projects hand-write JSON/JSONL.", "severity": "low", "mitigation": "Future work: agent-state-init script + jq schema linter", "status": "accepted"},
+    {"id": "r3", "summary": "Deploy churn — every artifact correction triggers a gh-pages mirror push. Active oversight loops will generate many small commits.", "severity": "low", "mitigation": "Could batch via cron deploy; not implemented", "status": "open"},
+    {"id": "r4", "summary": "v1 reference implementation (yanghangAI/imagehide) no longer matches v2 methodology. Users who copy it verbatim will get the doc-site shape, not the oversight shape.", "severity": "medium", "mitigation": "README explicitly warns 'don't copy verbatim'; longer-term need a v2 reference impl", "status": "open"},
+    {"id": "r5", "summary": "TextQuoteSelector anchoring may fail on text rendered dynamically from artifact updates (the very thing the dashboard does most).", "severity": "low", "mitigation": "Patterns 4-6 from v1 carried over; needs real-world stress test", "status": "open"},
+    {"id": "r6", "summary": "Public-passthrough auth mode is not yet in the published methodology — only PAT and OAuth+Worker are documented.", "severity": "low", "mitigation": "Plan step s7 covers adding it after dogfood validates the approach", "status": "open"}
+  ]
+}

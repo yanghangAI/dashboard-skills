@@ -1,0 +1,19 @@
+{
+  "agent_id": "claude",
+  "updated_at": "2026-05-27T04:35:00Z",
+  "claims": [
+    {"id": "repo_url", "value": "https://github.com/yanghangAI/dashboard-skills", "source": "git remote get-url origin", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "command-output"},
+    {"id": "branch", "value": "main", "source": "git branch --show-current", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "command-output"},
+    {"id": "released_skills_count", "value": 3, "source": "skills/", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "source-file"},
+    {"id": "released_skills", "value": ["build-html-dashboard", "html-effectiveness", "fix-feedback"], "source": "skills/", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "source-file"},
+    {"id": "drafts_pending", "value": 4, "source": "find . -name '*.draft'", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "command-output"},
+    {"id": "draft_files", "value": ["skills/build-html-dashboard/SKILL.md.draft", "skills/fix-feedback/SKILL.md.draft", "templates/fix-feedback.md.draft", "README.md.draft"], "source": "find . -name '*.draft'", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "command-output"},
+    {"id": "decisions_logged", "value": 6, "source": "docs/agent-state/claude/decisions.jsonl", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "source-file"},
+    {"id": "last_commit", "value": "c08d45f", "source": "git log -1 --format=%h", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "command-output"},
+    {"id": "last_commit_subject", "value": "feat(build-html-dashboard): ask PAT vs OAuth+Worker auth-mode upfront", "source": "git log -1 --format=%s", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "command-output"},
+    {"id": "codex_review_passes_completed", "value": 2, "source": "session", "verified_at": "2026-05-27T04:25:00Z", "confidence": "high", "evidence_kind": "human-assertion"},
+    {"id": "codex_findings_addressed", "value": "all 5 top-ranked from pass 1 + all 8 from pass 2", "source": "session", "verified_at": "2026-05-27T04:25:00Z", "confidence": "high", "evidence_kind": "human-assertion"},
+    {"id": "v2_release_status", "value": "drafts ready; not committed; dogfood dashboard in progress", "source": "session", "verified_at": "2026-05-27T04:35:00Z", "confidence": "high", "evidence_kind": "human-assertion"},
+    {"id": "github_issues_open", "value": 0, "source": "https://api.github.com/repos/yanghangAI/dashboard-skills/issues?state=open", "verified_at": "2026-05-27T04:35:00Z", "confidence": "medium", "evidence_kind": "model-inference"}
+  ]
+}
