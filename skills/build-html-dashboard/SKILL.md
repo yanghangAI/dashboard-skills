@@ -326,13 +326,13 @@ gh label create override   -R owner/repo --color fbca04
 
     Same shape for the case-insensitive fallback (`new RegExp(wsFlex, "i")`).
 
-13. **Saturated, distinct highlight palette per severity.** Highlights live inside elements with their own backgrounds (`.active` nav links, `--surface-alt` cards). A muted/grey FYI tier is invisible on `--surface-alt` — and FYI is the *default* severity, so most comments vanish. Use four saturated, distinct hues with ≥0.22 alpha background + ≥0.85 alpha 2 px `border-bottom`: blue (Fix), red (Block), amber (Override), **indigo (FYI)** — indigo specifically so it stands out from accent-blue Fix *and* from greys. Verify against every surface the dashboard ships before declaring done.
+13. **Subtle severity-tinted highlight, not visually dominant.** Highlights are *indicators* ("comment here"), not *content*. Use a low-alpha tint (~0.10) + thin (1 px) dashed `border-bottom` with ~0.65 alpha. On hover, lift to ~0.22 alpha + solid border. Severity-distinct hues: blue (Fix), red (Block), amber (Override), **indigo (FYI)** — indigo specifically so the *default* severity stands out from accent-blue Fix *and* from neutral greys. Subtle by default avoids turning a busy oversight surface into a heat map.
 
-14. **Render an unmissable marker next to each anchor.** Background tints disappear against busy content. After `wrapRange` wraps the quote, append a small monospace pill (`#N`, severity-coloured, linking to the issue) right after the last wrapped node. This makes the existence of a comment visible even when the highlight blends in.
+14. **Click-to-reveal popover; content stays hidden until asked for.** Don't bake comment content into the page (no inline notes, no large marker pills, no auto-expanded badges). On click of a `.fb-anchor`, open a small floating popover (~360 px) near the anchor containing: severity badge, issue number, **note text**, "filed by @user · 2 h ago", and a small link to the full GitHub issue. Popover dismisses on outside click and `Escape`. Position auto-flips above the anchor when it would otherwise fall below the viewport. *Reason:* the dashboard's spatial layout is the product; comments are metadata about the spatial layout, not part of it. They should be findable in one click, but invisible until then.
 
-15. **Click capture with `preventDefault` inside wrapped links + unanchored fallback banner.** Two related cases:
-    - When the wrapped span sits inside an `<a>` (e.g. nav link), a click on the highlight must not also follow the parent link. Use a body-level **capture-phase** click handler matching `.fb-anchor, .fb-marker` and call `e.preventDefault()` + `e.stopPropagation()` before `window.open(issueUrl)`.
-    - Some quotes can't be located on the page (cross-content selections; text that changed since filing). Don't drop them silently — collect them into a small floating bottom-right banner: *"2 comments on this page that couldn't be anchored: #4 #7"*. They're still actionable via `fix-feedback`'s `Artifact:` / `Record:` fields; the human just doesn't get inline highlights.
+15. **Click capture with `preventDefault` inside wrapped links + unanchored fallback toggle.** Two related cases:
+    - When the wrapped span sits inside an `<a>` (e.g. nav link), a click on the highlight must not also follow the parent link. Use a body-level **capture-phase** click handler matching `.fb-anchor` and call `e.preventDefault()` + `e.stopPropagation()` before `showPopover(anchor)`.
+    - Some quotes can't be located on the page (cross-content selections; text that changed since filing). Don't drop them silently — show a small collapsed pill bottom-right (*"2 floating"*) that expands to a list of unanchored issues on click. Each list item reuses the popover (no new tab); the badge + title + #N is enough metadata to triage. They're still actionable via `fix-feedback`'s `Artifact:` / `Record:` fields; the human just doesn't get an inline anchor.
 
 ### Phase 6 — Deploy
 
@@ -419,10 +419,11 @@ The 10 comment-overlay patterns are preserved. The auth modes (PAT / OAuth+Worke
 | Selection across `<code>` fails | 5 | Pattern 4 (multi-text-node walker) missing. |
 | **Filed a comment, the highlight never appears on the page** | 5 | Pattern 11 missing — `loadComments` ran before the page's async IIFE finished. Dispatch `dashboard:rendered` after each page renders; overlay listens and re-walks. |
 | **Highlight lands a few chars off from the actual quote** | 5 | Pattern 12 missing — normalized fallback returned wrong-coordinate-space indexes. Use whitespace-flexible regex against the original text. |
-| **FYI comments are wrapped but invisible on the rendered page** | 5 | Pattern 13 missing — grey-on-grey on `.active` nav links or `--surface-alt` cards. Use saturated indigo for FYI; verify on every surface the dashboard ships. |
-| **Comment count in nav is non-zero but no marks visible anywhere** | 5 | Pattern 14 missing (no `#N` marker pills) + likely pattern 13 (palette). Add the marker pills and saturate the highlight palette. |
-| **Click on highlight follows the parent link instead of opening the issue** | 5 | Pattern 15 missing — capture-phase click handler must `preventDefault` + `stopPropagation` on `.fb-anchor`. |
-| **Cross-section / multi-event selections submit but never render** | 5 | Pattern 15 fallback missing — render the unanchored-comments banner so they're not invisible. `fix-feedback` still handles them via Artifact + Record fields. |
+| **FYI comments are wrapped but invisible on the rendered page** | 5 | Pattern 13 missing — grey-on-grey on `.active` nav links or `--surface-alt` cards. Use indigo for FYI (distinguishes from greys); subtle but never zero contrast. |
+| **Dashboard looks like a heat map of saturated highlights** | 5 | Pattern 13 mis-tuned in the other direction — alpha too high or border too thick. Drop background alpha to ~0.10 and use a thin dashed border-bottom. Highlights are *indicators*, not content. |
+| **Comment count in nav non-zero but no way to discover what the comments say** | 5 | Pattern 14 missing — no click-to-reveal popover. Add a floating popover with note text + author + GitHub link, opened by clicking any `.fb-anchor`. |
+| **Click on highlight follows the parent link instead of opening the issue** | 5 | Pattern 15 missing — capture-phase click handler must `preventDefault` + `stopPropagation` on `.fb-anchor` before `showPopover()`. |
+| **Cross-section / multi-event selections submit but never render** | 5 | Pattern 15 fallback missing — render the unanchored-comments toggle so they're not invisible. `fix-feedback` still handles them via Artifact + Record fields. |
 | **Double-wrapped or fragmented text after re-renders** | 5 | `unwrapExistingAnchors()` + `document.body.normalize()` missing before each `loadComments` re-walk. |
 
 ## Dogfood before publishing
@@ -431,9 +432,10 @@ The original 10 patterns came from imagehide's real use; patterns 11–15 came f
 
 1. Build the dashboard end-to-end (artifacts → pages → overlay → deploy).
 2. File at least one comment of each severity tier from a real browser session.
-3. Verify each highlight renders, the `#N` marker pill appears, and clicking the marker opens the issue.
-4. File a comment whose quote spans two sections — verify the unanchored banner appears with the issue link.
-5. Refresh and navigate between pages — verify `dashboard:rendered` re-walks correctly (no double-wraps; old anchors get unwrapped first).
+3. Verify each highlight is visible-but-subtle (no heat map), and clicking opens an in-page popover with the note text — not a tab redirect.
+4. Press Escape / click outside — popover closes.
+5. File a comment whose quote spans two sections — verify the bottom-right *"N floating"* toggle appears and expands to a list of unanchored issues; clicking any item opens the same popover.
+6. Refresh and navigate between pages — verify `dashboard:rendered` re-walks correctly (no double-wraps; old anchors get unwrapped first).
 
 If any step silently fails, that's a missing pattern. Add it back here so the next project doesn't repeat the same discovery.
 

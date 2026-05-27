@@ -53,7 +53,7 @@ The methodology. Seven phases:
 2. **Artifact contract** — agree on `events.jsonl` / `plan.json` / `claims.json` / `decisions.jsonl` / `risks.json` / `blockers.json` under `docs/agent-state/<agent_id>/` (with `agent_id` on every record).
 3. **Page design** — five required oversight pages (Live Status, Activity Timeline, Decision Audit, Drift, Trust Calibration), plus project-specific optionals.
 4. **HTML implementation** — one file per page, no build step, **provenance + freshness rendered in the UI** per fact (stale ages green→grey→red).
-5. **Comment overlay** — 15 load-bearing patterns: 1–10 (interaction: TextQuoteSelector anchor, multi-text-node walker, optimistic update, …) + 11–15 (render lifecycle + visibility: `dashboard:rendered` event, position-preserving fallback, saturated palette, `#N` markers, click capture + unanchored banner) + **4-tier severity radio** (FYI / Fix / Block / Override).
+5. **Comment overlay** — 15 load-bearing patterns: 1–10 (interaction: TextQuoteSelector anchor, multi-text-node walker, optimistic update, …) + 11–15 (render lifecycle + visibility: `dashboard:rendered` event, position-preserving fallback, **subtle** severity-tinted highlight, **click-to-reveal popover**, click capture + unanchored toggle) + **4-tier severity radio** (FYI / Fix / Block / Override). The dashboard surface stays calm; comments are revealed only when the human clicks a highlight.
 6. **Deploy** — `gh-pages` worktree mirrors HTML + `assets/` + `docs/agent-state/`.
 7. **Maintenance** — install `fix-feedback`; it consumes Fix/Block issues and edits artifacts.
 

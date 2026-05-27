@@ -248,13 +248,17 @@ async function loadComments() {
   const countEl = document.getElementById("fb-count");
   if (countEl) {
     countEl.textContent = issues.length || "";
-    countEl.title = issues.length ? `${issues.length} open dashboard comment${issues.length > 1 ? "s" : ""} (click to view on GitHub)` : "";
+    countEl.title = issues.length ? `${issues.length} open dashboard comment${issues.length > 1 ? "s" : ""} (anchored: highlighted text; unanchored: bottom-right pill)` : "";
   }
 
   unwrapExistingAnchors();
   const walk = walkText(document.body);
   const pageUrl = location.href.replace(/#.*$/, "");
   const unanchored = [];
+
+  // Cache full issue objects for the popover click handler
+  _commentsByNumber.clear();
+  for (const issue of issues) _commentsByNumber.set(issue.number, issue);
 
   for (const issue of issues) {
     const meta = parseIssueBody(issue.body || "");
@@ -263,50 +267,73 @@ async function loadComments() {
     const loc = locateQuote(walk.text, meta.quote, meta.pre, meta.suf);
     if (loc === -1) { unanchored.push(issue); continue; }
     const sev = (meta.severity || "fyi").toLowerCase();
-    const wraps = wrapRange(walk, loc.start, loc.end, "fb-anchor", {
+    wrapRange(walk, loc.start, loc.end, "fb-anchor", {
       sev,
       issue: String(issue.number),
-      issueUrl: issue.html_url,
     });
-    // Add a small 💬 marker after the last wrapped node so the highlight is
-    // unmissable even on already-coloured backgrounds.
-    if (wraps.length) {
-      const marker = document.createElement("a");
-      marker.className = "fb-marker";
-      marker.dataset.sev = sev;
-      marker.href = issue.html_url;
-      marker.target = "_blank";
-      marker.rel = "noopener";
-      marker.textContent = `#${issue.number}`;
-      marker.title = `${meta.severity || "FYI"}: ${issue.title}`;
-      const last = wraps[wraps.length - 1];
-      last.parentNode.insertBefore(marker, last.nextSibling);
-    }
+    // No marker pill — patterns 13/14 deliberately understated.
+    // The text underline alone signals "comment here"; click reveals the popover.
   }
 
-  renderUnanchoredBanner(unanchored);
+  renderUnanchoredToggle(unanchored);
   _loadingComments = false;
 }
 
-function renderUnanchoredBanner(unanchored) {
-  document.querySelectorAll(".fb-unanchored").forEach(n => n.remove());
+function renderUnanchoredToggle(unanchored) {
+  document.querySelectorAll(".fb-unanchored-toggle, .fb-unanchored-list").forEach(n => n.remove());
   if (!unanchored.length) return;
-  const banner = document.createElement("div");
-  banner.className = "fb-unanchored";
-  banner.innerHTML = `
-    <strong>${unanchored.length}</strong> comment${unanchored.length > 1 ? "s" : ""} on this page
-    that couldn't be anchored to specific text (cross-content selection or text changed since filing).
-    ${unanchored.map(i => `<a href="${i.html_url}" target="_blank" rel="noopener">#${i.number}</a>`).join(" · ")}
-  `;
-  document.body.appendChild(banner);
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "fb-unanchored-toggle";
+  toggle.title = "Comments on this page that couldn't be anchored to specific text — click to expand";
+  toggle.textContent = `${unanchored.length} floating`;
+  document.body.appendChild(toggle);
+  let expanded = false;
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    expanded = !expanded;
+    document.querySelectorAll(".fb-unanchored-list").forEach(n => n.remove());
+    if (!expanded) return;
+    const list = document.createElement("div");
+    list.className = "fb-unanchored-list";
+    list.innerHTML = `
+      <strong>${unanchored.length} unanchored comment${unanchored.length > 1 ? "s" : ""}</strong>
+      <ul>
+        ${unanchored.map(i => {
+          const meta = parseIssueBody(i.body || "");
+          const sev = (meta.severity || "fyi").toLowerCase();
+          return `
+            <li>
+              <button type="button" class="fb-uitem" data-issue="${i.number}">
+                <span class="badge sev-${escapeAttr(sev)}">${escapeHTML(meta.severity || "FYI")}</span>
+                <span class="num">#${i.number}</span>
+                <span class="title">${escapeHTML(i.title.replace(/^\[[^\]]+\]\s*/, ""))}</span>
+              </button>
+            </li>`;
+        }).join("")}
+      </ul>`;
+    document.body.appendChild(list);
+    list.querySelectorAll(".fb-uitem").forEach(btn => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        showPopover(btn);
+      });
+    });
+  });
+  document.addEventListener("click", (e) => {
+    if (expanded && !e.target.closest(".fb-unanchored-toggle, .fb-unanchored-list, #fb-popover")) {
+      expanded = false;
+      document.querySelectorAll(".fb-unanchored-list").forEach(n => n.remove());
+    }
+  });
 }
 
 document.addEventListener("click", (e) => {
-  const a = e.target.closest(".fb-anchor, .fb-marker");
+  const a = e.target.closest(".fb-anchor");
   if (!a) return;
   e.preventDefault();
   e.stopPropagation();
-  window.open(a.dataset.issueUrl || a.href, "_blank", "noopener");
+  showPopover(a);
 }, true);
 
 function parseIssueBody(body) {
@@ -319,6 +346,8 @@ function parseIssueBody(body) {
   out.record = m(/\*\*Record:\*\*\s*([^\n]+)/);
   const q = body.match(/\*\*Quote:\*\*\s*\n>\s*([^\n]+(?:\n>\s*[^\n]+)*)/);
   if (q) out.quote = q[1].replace(/\n>\s*/g, "\n").trim();
+  const note = body.match(/\*\*Note:\*\*\s*\n([\s\S]+?)(?:\n\n|\n<!--|$)/);
+  if (note) out.note = note[1].trim();
   const ctx = body.match(/<!--\s*fb-ctx:\s*pre=(.+?)\s+suf=(.+?)\s*-->/);
   if (ctx) {
     try { out.pre = JSON.parse(ctx[1]); } catch (_) {}
@@ -326,6 +355,88 @@ function parseIssueBody(body) {
   }
   return out;
 }
+
+/* ---------- click-to-reveal popover (pattern 14) ---------- */
+const _commentsByNumber = new Map();
+
+function relTimeShort(ts) {
+  const diff = Date.now() - Date.parse(ts);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  if (m < 60 * 24) return `${Math.floor(m / 60)} h ago`;
+  return `${Math.floor(m / (60 * 24))} d ago`;
+}
+
+function closePopover() {
+  const p = document.getElementById("fb-popover");
+  if (p) p.remove();
+  document.removeEventListener("click", _outsideClose, true);
+  document.removeEventListener("keydown", _escClose);
+}
+
+function _outsideClose(e) {
+  if (e.target.closest("#fb-popover")) return;
+  if (e.target.closest(".fb-anchor")) return; // a different anchor click will swap, not close
+  closePopover();
+}
+
+function _escClose(e) {
+  if (e.key === "Escape") closePopover();
+}
+
+function showPopover(anchor) {
+  const num = parseInt(anchor.dataset.issue, 10);
+  const issue = _commentsByNumber.get(num);
+  if (!issue) return;
+  const meta = parseIssueBody(issue.body || "");
+  const sev = (meta.severity || "fyi").toLowerCase();
+
+  closePopover();
+
+  const popover = document.createElement("div");
+  popover.id = "fb-popover";
+  popover.className = "fb-popover";
+  popover.dataset.sev = sev;
+  popover.innerHTML = `
+    <header>
+      <span class="badge sev-${escapeAttr(sev)}">${escapeHTML(meta.severity || "FYI")}</span>
+      <span class="num">#${issue.number}</span>
+      <button type="button" class="close" aria-label="Close">×</button>
+    </header>
+    <div class="note">${escapeHTML(meta.note || "(no note)")}</div>
+    <footer>
+      <span class="by">filed by <a href="${escapeAttr(issue.user.html_url)}" target="_blank" rel="noopener">@${escapeHTML(issue.user.login)}</a> · ${escapeHTML(relTimeShort(issue.created_at))}</span>
+      <a class="open" href="${escapeAttr(issue.html_url)}" target="_blank" rel="noopener">open on GitHub →</a>
+    </footer>`;
+  document.body.appendChild(popover);
+
+  // Position below the anchor; flip into view if off the edges
+  const rect = anchor.getBoundingClientRect();
+  const popW = popover.offsetWidth;
+  const popH = popover.offsetHeight;
+  let top = window.scrollY + rect.bottom + 6;
+  let left = window.scrollX + rect.left;
+  // Right edge
+  if (left + popW > window.scrollX + window.innerWidth - 8) {
+    left = window.scrollX + window.innerWidth - popW - 8;
+  }
+  // Below the viewport → flip above
+  if (rect.bottom + popH + 6 > window.innerHeight - 8 && rect.top > popH + 6) {
+    top = window.scrollY + rect.top - popH - 6;
+  }
+  popover.style.top = `${top}px`;
+  popover.style.left = `${Math.max(8, left)}px`;
+
+  popover.querySelector(".close").addEventListener("click", closePopover);
+  // Defer outside-click so the click that opened the popover doesn't immediately close it
+  setTimeout(() => {
+    document.addEventListener("click", _outsideClose, true);
+    document.addEventListener("keydown", _escClose);
+  }, 0);
+}
+
+function escapeAttr(s) { return String(s || "").replace(/"/g, "&quot;"); }
 
 /* ---------- freshness rendering ---------- */
 function renderFreshness() {
