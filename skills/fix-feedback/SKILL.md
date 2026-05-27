@@ -1,109 +1,176 @@
 ---
 name: fix-feedback
-description: Use when the user explicitly asks to process the dashboard comment/feedback queue, work through `claude-fix` GitHub issues, or close the loop on inline comments filed by an HTML dashboard's overlay. Pairs with the `build-html-dashboard` skill. Do NOT use for general GitHub issue triage.
+description: Use when the user explicitly asks to process the dashboard comment queue, classify severity-tiered GitHub issues filed by an AI-oversight dashboard's overlay (Fix / Block / Override / FYI), or close the loop on inline comments. Pairs with the `build-html-dashboard` skill. The skill edits agent artifacts (plan, events, claims, decisions, etc.), not HTML — the HTML re-renders from artifacts. Do NOT use for general GitHub issue triage.
 ---
 
-# fix-feedback — process the dashboard comment queue
+# fix-feedback — drain the oversight comment queue
 
-Read open issues filed by the project's HTML dashboard (issues carrying both `comment` and `claude-fix` labels), parse each, apply the minimum edit, mirror to `gh-pages` if HTML/assets changed, close the issue.
+Read open `comment`-labeled issues filed by the project's oversight dashboard, classify each by label set into one of four severity tiers (Fix / Block / Override / FYI), and act per tier: Fix → **edit the underlying artifact** (not the HTML), commit, close; Block → edit + leave open with resolution comment; Override → append a mandatory override record to `decisions.jsonl`, commit, close; FYI → leave for the human. Mirror to `gh-pages` if `docs/agent-state/`, HTML, or `assets/*` changed.
 
-This skill is the runtime half of the methodology in `build-html-dashboard` — Phase 6 of that skill. It replaces the older per-project `.claude/commands/fix-feedback.md` slash command (which still ships as a template for projects with non-standard page layouts that need the URL→file mapping spelled out by hand).
+This is the runtime half of `build-html-dashboard` Phase 7. It replaces the older per-project `.claude/commands/fix-feedback.md` slash command (still shipped as a template for projects with non-standard layouts).
 
-## Step 0 — Derive project context (don't ask if you can detect)
+## Step 0 — Derive project context
 
 ```bash
 git remote get-url origin
 ```
 
-Parse the result to get `<OWNER>/<REPO>`. Both `https://github.com/<OWNER>/<REPO>.git` and `git@github.com:<OWNER>/<REPO>.git` forms work.
-
-Default GitHub Pages base URL: `https://<OWNER>.github.io/<REPO>/`.
+Parse to get `<OWNER>/<REPO>`. Default Pages base URL: `https://<OWNER>.github.io/<REPO>/`.
 
 **Ask the user only if:**
-- `git remote get-url origin` fails or isn't a GitHub URL, OR
-- The project uses a custom domain or non-default Pages branch (signaled by a `CNAME` file at the repo root or a stray `Where:` URL in a comment that doesn't start with the default base URL).
+- `git remote get-url origin` fails or isn't a GitHub URL.
+- The project uses a custom domain or non-default Pages branch (CNAME file, or a `Where:` URL that doesn't start with the default base).
+- The repo doesn't have a `docs/agent-state/` (or equivalent) directory — ask where the agent's artifacts live.
 
-If you ask, ask once and reuse for the rest of the session.
+If you ask, ask once and reuse for the session.
 
 ## Step 1 — List action items
 
+Fetch all `comment`-labeled open issues, then filter in-memory by label combination (single AND-filter on the CLI would miss `override`-tier issues, which don't carry `claude-fix`):
+
 ```bash
 gh issue list -R <OWNER>/<REPO> \
-  --label claude-fix --label comment \
+  --label comment \
   --state open \
   --json number,title,body,url,createdAt,labels
 ```
 
-**Both labels required.** Issues from the new dashboard flow always carry both `comment` (every published comment) and `claude-fix` (only when the user ticked "Ask Claude to fix"). Issues with `claude-fix` alone are legacy pre-toggle artifacts and should NOT be auto-processed — they need manual review since the user didn't necessarily intend to flag them for action.
+**Tier classification** by the issue's label set (every fetched issue has `comment`, so these four cases are exhaustive):
 
-If the list is empty, report so and stop.
+| Labels present | Tier | Action |
+|---|---|---|
+| `comment` + `claude-fix` (no `block`) | **Fix** | edit artifact, commit, close |
+| `comment` + `claude-fix` + `block` | **Block** | edit artifact, commit, leave open with resolution comment |
+| `comment` + `override` (no `claude-fix`) | **Override** | append override record to `decisions.jsonl`, commit, close |
+| `comment` only | **FYI** | skip; not an action item |
+
+Legacy pre-tier issues with `claude-fix` but no `comment` are intentionally excluded from this fetch — they need manual review (see "Don't touch"). To audit them separately:
+
+```bash
+gh issue list -R <OWNER>/<REPO> --label claude-fix --state open --json number,title,labels \
+  | jq '.[] | select((.labels | map(.name)) | index("comment") | not)'
+```
+
+If no Fix / Block / Override issues remain after classification, report so and stop.
 
 ## Step 2 — Parse each issue body
 
 Bodies follow the dashboard's template:
 
 ```
+**Severity:** Fix | Block | Override | FYI
 **Where:** <page_url>[#<section_anchor>]
+**Agent:** <agent_id>                     (when DOM had data-agent-id)
+**Artifact:** <docs/agent-state/.../file>  (when DOM had data-artifact)
+**Record:** <record-id>                    (when DOM had data-record-id)
 
 **Quote:**
-> <selected text from the page>
+> <selected text>
 
 **Note:**
 <user's request>
+
+<!-- fb-ctx: pre="..." suf="..." -->
 ```
 
-**Auto-derive URL → file mapping.** Strip `<PAGES_BASE_URL>` from the `Where:` URL. Treat the remainder as a path under the repo root:
+**Resolve the target (in order of preference):**
 
-| URL remainder | Maps to |
-|---|---|
-| `` (empty) or `/` | `index.html` at repo root |
-| `docs/html/spec.html` | `docs/html/spec.html` |
-| `subdir/page` (no extension) | `subdir/page/index.html` if it exists, else `subdir/page.html` |
+1. **`Artifact:` field present** — use it directly. This is the fast, unambiguous path; the dashboard's overlay populates `Artifact:` / `Record:` from `data-artifact` / `data-record-id` ancestors of the selected text. If `Record:` is also present, locate that record inside the file:
+   - **JSONL files** (`events.jsonl`, `decisions.jsonl`): line-grep for `"id": "<value>"`.
+   - **Top-level array JSON** (`plan.json` → `steps[]`, `risks.json` → `risks[]`, `blockers.json` → `blockers[]`): use `jq` to find the array element by `id` — e.g. `jq '.steps[] | select(.id == "s2")' plan.json`.
+   - **Flat-keyed JSON** (`claims.json`): search at the top level by `id`.
+2. **`Artifact:` absent** — fall back to URL-based mapping. Strip `<PAGES_BASE_URL>` from `Where:`:
 
-Verify the file exists before editing. If the mapping doesn't resolve, ask the user.
+   | Page (URL remainder) | Reads from artifact(s) |
+   |---|---|
+   | `` or `/` (Live Status Board) | `docs/agent-state/<agent>/plan.json`, `blockers.json`, latest `events.jsonl` |
+   | `timeline.html` | `docs/agent-state/<agent>/events.jsonl` |
+   | `decisions.html` | `docs/agent-state/<agent>/decisions.jsonl` |
+   | `drift.html` | `docs/agent-state/<agent>/plan.json` + `claims.json` + live sources |
+   | `trust.html` | GitHub Issues history (no local artifact — leave as feedback on the trust-calibration logic itself) |
+   | `spec.html`, `runbook.html`, project-specific | project-defined; usually `claims.json` |
 
-- Section anchors (`#…`) point to a specific `<section>` / `<h2>` / `<h3>` inside the HTML.
-- The HTML is often derived from `.md` sources under `docs/`. Use judgement on whether the fix belongs in the HTML directly (wording, layout) or upstream in the `.md` source (design rationale, plan changes).
-- If `Quote` is empty or the `Note` says "the whole section" / similar, the comment is about a region, not a specific phrase.
+   When multiple artifacts back one page (e.g. Live Status reads three), use the `Quote:` text to disambiguate — match against the current contents of each candidate file.
+
+3. **`Agent:` field present** — use to select `docs/agent-state/<agent_id>/`. Absent: infer from URL path segments, or if still ambiguous, ask.
+
+**Decide: artifact edit or HTML edit?**
+
+- **Default: edit the artifact.** Wording / data / decisions / plan steps / risks live in artifacts. The HTML re-renders.
+- **HTML edit only when** `Artifact:` is empty AND the comment is about presentation (layout, missing column, page-level wording outside any artifact-rendered region). The issue body should make this explicit — if ambiguous, ask the user.
+
+If `Quote` is empty or the `Note` says "the whole section," the comment is about a region/decision, not a phrase — edit the artifact that backs that region.
 
 ## Step 3 — Plan + execute
 
-- Use `TaskCreate` to add one task per issue so the user can see progress.
-- Read the relevant source file(s) before editing.
-- Apply the smallest change that satisfies the request. Don't refactor surrounding code unless the request specifically asks.
+- Use `TaskCreate` to add one task per Fix / Block / Override issue.
+- Read the target artifact before editing.
+- Apply the smallest change that satisfies the request. For JSONL append-only artifacts (`events.jsonl`, `decisions.jsonl`), prefer *appending a corrective record* (with `supersedes: "<id>"`) over editing history.
+- **Override-tier handling is mandatory** (not optional). Append a record to `docs/agent-state/<agent_id>/decisions.jsonl` with this exact shape:
+
+  ```json
+  {"id": "dec-override-<issue_number>", "ts": "<now ISO 8601>",
+   "agent_id": "<agent_id>", "kind": "override",
+   "subject": "<from issue title or Quote>",
+   "rationale": "<from issue body Note>",
+   "made_by": "human:<github-login of issue author>",
+   "issue": <N>}
+  ```
+
+  Requires `<agent_id>` resolved from Step 2. **If `Agent:` was absent in the issue body and the URL didn't disambiguate** (e.g. a cross-agent or multi-agent page), do **not** auto-log — report the issue for manual review and skip closure. Writing the override to the wrong agent's history is worse than leaving it uncaptured. Without an `agent_id`, human override decisions go uncaptured and the agent has no record of what risks were knowingly accepted.
+
 - After edits:
-  - Validate (run `node -c` on JS, parse HTML, etc. — whatever the change calls for).
-  - Commit on `main` with a clear message referencing the issue: `fix: <one line> (closes #<N>)`.
+  - **Validate the artifact**: `jq . file.json` for JSON, line-by-line `jq` for JSONL. Schema errors mean the dashboard won't render — catch them now.
+  - For HTML edits: `node -c` JS / HTML parse / open in headless browser if available.
+  - Commit on `main`:
+    - Fix: `fix(<agent_id>): <one line> (closes #<N>)`
+    - Block: `block-resolved(<agent_id>): <one line> (refs #<N>)`
+    - Override: `override(<agent_id>): <one line> (closes #<N>)`
   - Push to `origin main`.
-  - **If `index.html`, `docs/html/*.html`, or `assets/*` changed**, mirror to `gh-pages` per the project's deploy doc (worktree → copy → sed link rewrite → commit → push). If no deploy doc exists, ask the user how the project mirrors HTML to `gh-pages`.
-- Close the issue:
+  - **If `docs/agent-state/`, `index.html`, `docs/html/*.html`, or `assets/*` changed**, mirror to `gh-pages` per the project's deploy doc. If no deploy doc exists, ask.
+- Close (Fix and Override):
   ```bash
-  gh issue close <N> -R <OWNER>/<REPO> -c "Fixed in <short-commit-hash>: <one-line summary>"
+  # Fix
+  gh issue close <N> -R <OWNER>/<REPO> -c "Fixed in <short-hash>: <summary>. Artifact: <path>"
+  # Override
+  gh issue close <N> -R <OWNER>/<REPO> -c "Override logged in <short-hash>: <subject>. decisions.jsonl record: dec-override-<N>"
+  ```
+- For Block, add a comment instead of closing:
+  ```bash
+  gh issue comment <N> -R <OWNER>/<REPO> -b "Block-resolved in <short-hash>: <summary>. Artifact: <path>. Close when ready to unblock."
   ```
 
 ## Step 4 — Ambiguity → ask
 
-If an issue is ambiguous, requires a scope decision, or implies changes to in-flight research (e.g. modifying `PLAN.md` or `HANDOFF.md`), **ask the user before acting**. Don't guess.
+If an issue is ambiguous, implies a scope decision, or wants to modify an in-flight plan/decision in a way that contradicts a prior decision record, **ask before acting**. Don't guess.
+
+For Block-tier issues that require a human decision the dashboard didn't capture (e.g., "should we abandon this approach?"), don't try to resolve — report back to the user and let them decide.
 
 ## Step 5 — Wrap-up
 
 Report:
-- Issues closed (with commit hashes and one-line summaries).
-- Issues skipped or deferred (and why).
-- Any new findings worth surfacing (e.g. a comment revealed a real bug that warrants follow-up issues).
+- Fix-tier issues closed: commit hashes, one-line summaries, artifact paths edited.
+- Override-tier issues closed: commit hashes + `dec-override-<N>` record ids.
+- Block-tier issues block-resolved: same as Fix, awaiting human close.
+- Issues skipped (FYI, legacy, ambiguous): reasons.
+- Any new findings worth surfacing (e.g. a comment revealed a real bug warranting a follow-up issue, or a contradiction between two artifacts).
 
 ## Don't touch
 
-- Issues with **only** the `comment` label (no `claude-fix`): notes / discussion items, not action items. Leave them open.
+- FYI issues (`comment` only, no `claude-fix`, no `override`): discussion, not action — the human closes when read.
 - Closed issues, even if labeled `claude-fix` — already resolved.
+- HTML files when the underlying artifact would cover the fix. Default to artifact edits.
 
 ## When to prefer the template over this skill
 
-Copy `templates/fix-feedback.md` into the project's `.claude/commands/` when:
-- The project's URL→file mapping isn't a clean strip-prefix (e.g. an HTML page is generated from a `.md` two directories away, or multiple Pages sites share a repo).
-- You want the mapping written down explicitly for collaborators to read.
-- The repo isn't hosted on GitHub Pages (different base URL, different deploy mechanism).
+Copy `templates/fix-feedback.md` into `.claude/commands/` when:
+
+- The URL → artifact mapping isn't a clean strip-prefix (e.g. HTML rendered from artifacts in a non-obvious location, multiple Pages sites sharing a repo).
+- The project doesn't use `docs/agent-state/` and has a custom layout for its artifacts.
+- You want the mapping written down explicitly for collaborators.
+- The repo isn't on GitHub Pages (different base URL / different deploy mechanism).
 
 ## See also
 
-- `build-html-dashboard` — the methodology this skill closes the loop for. Phase 4 pattern 10 (the `claude-fix` opt-in checkbox in the comment modal) is what makes the `comment AND claude-fix` filter actually match anything.
+- `build-html-dashboard` — the methodology. Phase 5 (severity tiers in the comment modal) is what makes the `comment + claude-fix [+ block | override]` filter actually match anything.
+- W3C Web Annotation Data Model: https://www.w3.org/TR/annotation-model/#text-quote-selector
